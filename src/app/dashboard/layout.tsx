@@ -1,8 +1,8 @@
 
 "use client"
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import { BarChart, History, Home, Mails, Settings, Users } from 'lucide-react';
+import { usePathname, useRouter } from 'next/navigation';
+import { BarChart, History, Home, Mails, Settings, Users, Loader2 } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -11,13 +11,32 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarProvider,
-  SidebarInset
+  SidebarInset,
+  SidebarTrigger
 } from '@/components/ui/sidebar';
 import { UserNav } from '@/components/user-nav';
 import Logo from '@/components/logo';
+import { useAuth } from '@/context/AuthContext';
+import { useEffect } from 'react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const { user, loading } = useAuth();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [user, loading, router]);
+
+  if (loading || !user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-background">
+        <Loader2 className="h-12 w-12 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <SidebarProvider>
@@ -86,7 +105,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <SidebarInset>
         <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6">
             <div className="md:hidden">
-                {/* Mobile sidebar trigger can go here if needed */}
+                <SidebarTrigger />
             </div>
             <div className="ml-auto flex items-center gap-4">
                 <UserNav />

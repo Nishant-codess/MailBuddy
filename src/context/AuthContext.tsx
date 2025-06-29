@@ -1,35 +1,16 @@
 'use client';
 
-import React, { createContext, useContext, ReactNode } from 'react';
-import type { User } from 'firebase/auth';
-
-// Create a mock user object that matches the User type.
-const mockUser: User = {
-  uid: 'mock-user-id',
-  email: 'owner@smb.com',
-  displayName: 'Small Business Owner',
-  photoURL: '',
-  emailVerified: true,
-  isAnonymous: false,
-  metadata: {},
-  providerData: [],
-  providerId: 'mock',
-  tenantId: null,
-  delete: async () => {},
-  getIdToken: async () => 'mock-token',
-  getIdTokenResult: async () => ({
-    token: 'mock-token',
-    claims: {},
-    authTime: new Date().toISOString(),
-    issuedAtTime: new Date().toISOString(),
-    signInProvider: null,
-    signInSecondFactor: null,
-    expirationTime: new Date(Date.now() + 3600 * 1000).toISOString(),
-   }),
-  reload: async () => {},
-  toJSON: () => ({}),
-};
-
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import {
+  onAuthStateChanged,
+  signInWithRedirect,
+  signOut,
+  GoogleAuthProvider,
+  User,
+} from 'firebase/auth';
+import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { auth, db } from '@/lib/firebase';
+import { useRouter, usePathname } from 'next/navigation';
 
 interface AuthContextType {
   user: User | null;
@@ -41,26 +22,80 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+const googleProvider = new GoogleAuthProvider();
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const router = useRouter();
+  const pathname = usePathname();
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setLoading(true);
+      if (user) {
+        // User is signed in.
+        const userRef = doc(db, 'users', user.uid);
+        const docSnap = await getDoc(userRef);
+        if (!docSnap.exists()) {
+          // New user, create a document in Firestore
+          await setDoc(userRef, {
+            uid: user.uid,
+            email: user.email,
+            displayName: user.displayName,
+            photoURL: user.photoURL,
+            createdAt: serverTimestamp(),
+            lastLogin: serverTimestamp(),
+          });
+        } else {
+          // Existing user, update last login time
+          await setDoc(userRef, { lastLogin: serverTimestamp() }, { merge: true });
+        }
+        setUser(user);
+        if (pathname === '/login') {
+          router.push('/dashboard');
+        }
+      } else {
+        // User is signed out.
+        setUser(null);
+        if (pathname.startsWith('/dashboard')) {
+            router.push('/login');
+        }
+      }
+      setLoading(false);
+      setIsLoggingIn(false);
+    });
+
+    return () => unsubscribe();
+  }, [router, pathname]);
 
   const login = async () => {
-    // This function no longer does anything.
-    return Promise.resolve();
+    setIsLoggingIn(true);
+    try {
+      // Use redirect which is more reliable than popup
+      await signInWithRedirect(auth, googleProvider);
+    } catch (error) {
+      console.error("Login failed:", error);
+      setIsLoggingIn(false);
+    }
   };
 
   const logout = async () => {
-    // This function no longer does anything.
-    console.log("Logout clicked, but it's a no-op now.");
-    return Promise.resolve();
+    try {
+      await signOut(auth);
+      router.push('/login');
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
   };
 
-  // Always provide the mock user and set loading to false.
   const value = {
-    user: mockUser,
-    loading: false,
-    isLoggingIn: false,
+    user,
+    loading,
+    isLoggingIn,
     login,
-    logout
+    logout,
   };
 
   return (
