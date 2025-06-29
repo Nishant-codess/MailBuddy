@@ -26,6 +26,8 @@ import { sendEmail } from '@/ai/flows/send-email';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/lib/firebase';
 import { Label } from '@/components/ui/label';
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious, type CarouselApi } from "@/components/ui/carousel"
+import React from 'react';
 
 const formSchema = z.object({
   template: z.string().min(1, { message: "Please select a template." }),
@@ -35,19 +37,31 @@ const formSchema = z.object({
 
 type FormValues = z.infer<typeof formSchema>;
 
+interface CampaignEmail {
+  recipientEmail: string;
+  subject: string;
+  content: string;
+  customer: any;
+}
+
 export function EmailCampaignBuilder() {
   const { user } = useAuth();
   const [customerData, setCustomerData] = useState('');
+  const [customers, setCustomers] = useState<any[]>([]);
   const [dataSummary, setDataSummary] = useState('');
-  const [generatedEmail, setGeneratedEmail] = useState('');
-  const [generatedSubject, setGeneratedSubject] = useState('');
+
+  const [generatedCampaign, setGeneratedCampaign] = useState<CampaignEmail[]>([]);
+  
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
+
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [scheduleTime, setScheduleTime] = useState('09:00');
-  const [recipientEmail, setRecipientEmail] = useState('');
-  const emailTextareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  const [carouselApi, setCarouselApi] = React.useState<CarouselApi>()
+  const [currentSlide, setCurrentSlide] = React.useState(0)
+  const [slideCount, setSlideCount] = React.useState(0)
 
   const { toast } = useToast();
 
@@ -60,16 +74,55 @@ export function EmailCampaignBuilder() {
     },
   });
 
+  React.useEffect(() => {
+    if (!carouselApi) return;
+    setSlideCount(carouselApi.scrollSnapList().length)
+    setCurrentSlide(carouselApi.selectedScrollSnap() + 1)
+    carouselApi.on("select", () => {
+      setCurrentSlide(carouselApi.selectedScrollSnap() + 1)
+    })
+  }, [carouselApi])
+
+  const parseCsv = (csvText: string): any[] => {
+    const lines = csvText.trim().split(/\r?\n/);
+    if (lines.length < 2) return [];
+    
+    const headers = lines[0].split(',').map(h => h.trim());
+    const data = lines.slice(1).map(line => {
+        const values = line.split(',').map(v => v.trim());
+        const entry: {[key: string]: string} = {};
+        headers.forEach((header, index) => {
+            entry[header] = values[index];
+        });
+        return entry;
+    });
+    return data;
+  }
+
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        setCustomerData(e.target?.result as string);
+        const csvText = e.target?.result as string;
+        setCustomerData(csvText);
+        const parsedCustomers = parseCsv(csvText);
+        setCustomers(parsedCustomers);
+        if(parsedCustomers.length > 0) {
+            toast({ title: "Customers Loaded", description: `${parsedCustomers.length} customers found in your CSV.` });
+        } else {
+            toast({ variant: "destructive", title: "No Customers Found", description: "Could not parse any customer data from the CSV."})
+        }
       };
       reader.readAsText(file);
     }
   };
+  
+  const handleManualDataChange = (csvText: string) => {
+    setCustomerData(csvText);
+    const parsedCustomers = parseCsv(csvText);
+    setCustomers(parsedCustomers);
+  }
 
   const handleSummarize = async () => {
     if (!customerData) {
@@ -90,79 +143,86 @@ export function EmailCampaignBuilder() {
   };
 
   const onSubmit = async (values: FormValues) => {
+    if (customers.length === 0) {
+      toast({ variant: "destructive", title: "No Customers", description: "Please upload a CSV with customer data first." });
+      return;
+    }
     setIsGenerating(true);
-    setGeneratedEmail('');
-    setGeneratedSubject('');
+    setGeneratedCampaign([]);
     try {
-      const prompt = `Template: ${values.template}. Product: ${values.productName}. Additional details: ${values.customPrompt || 'None'}`;
-      const result = await generateEmail({ prompt, customerData: customerData || 'No customer data provided.' });
-      setGeneratedEmail(result.emailContent);
-      setGeneratedSubject(result.subject);
+      const promptTemplate = `Template: ${values.template}. Product: ${values.productName}. Additional details: ${values.customPrompt || 'None'}`;
+      
+      const generationPromises = customers.map(customer => {
+        const customerDataString = `Customer Details: ${JSON.stringify(customer, null, 2)}`;
+        return generateEmail({ prompt: promptTemplate, customerData: customerDataString })
+          .then(result => ({ 
+              recipientEmail: customer.email,
+              subject: result.subject,
+              content: result.emailContent,
+              customer 
+            }));
+      });
+
+      const results = await Promise.all(generationPromises);
+
+      setGeneratedCampaign(results);
+      toast({ title: "Campaign Generated!", description: `Personalized emails created for ${results.length} customers.` });
+
     } catch (error) {
       console.error(error);
-      toast({ variant: "destructive", title: "Error", description: "Failed to generate email." });
+      toast({ variant: "destructive", title: "Error", description: "Failed to generate the email campaign." });
     } finally {
       setIsGenerating(false);
     }
   };
-
-  const handleCopy = () => {
-    if (generatedEmail || generatedSubject) {
-      const fullHtml = `<b>${generatedSubject}</b><br/><br/>${generatedEmail.replace(/\n/g, '<br>')}`;
-      const blob = new Blob([fullHtml], { type: 'text/html' });
-      const clipboardItem = new ClipboardItem({ 'text/html': blob });
-      navigator.clipboard.write([clipboardItem]);
-      toast({ title: "Copied!", description: "Email subject and content copied to clipboard." });
-    }
-  };
   
-  const handleSend = async () => {
-     if (!recipientEmail) {
-        toast({ variant: "destructive", title: "No Recipient", description: "Please enter a recipient email address." });
-        return;
-     }
-     if (!generatedEmail || !user) return;
-     setIsSending(true);
-     try {
-       const result = await sendEmail({
-         recipientEmail: recipientEmail,
-         subject: generatedSubject,
-         htmlContent: generatedEmail.replace(/\n/g, '<br>'),
-       });
+  const handleSendAll = async () => {
+    if (generatedCampaign.length === 0 || !user) return;
+    setIsSending(true);
 
-       if (result.success) {
-         // Log to firestore on success
-         await addDoc(collection(db, 'emailLogs'), {
-           recipientEmail: recipientEmail,
-           subject: generatedSubject,
-           content: generatedEmail.replace(/\n/g, '<br>'),
-           sentAt: Timestamp.now(),
-           status: 'Sent',
-           userId: user.uid,
-         });
+    const sendPromises = generatedCampaign.map(email => {
+      return sendEmail({
+        recipientEmail: email.recipientEmail,
+        subject: email.subject,
+        htmlContent: email.content.replace(/\n/g, '<br>'),
+      }).then(async (sendResult) => {
+        if (sendResult.success) {
+          await addDoc(collection(db, 'emailLogs'), {
+            recipientEmail: email.recipientEmail,
+            subject: email.subject,
+            content: email.content.replace(/\n/g, '<br>'),
+            sentAt: Timestamp.now(),
+            status: 'Sent',
+            userId: user.uid,
+          });
+          return { status: 'fulfilled', value: email.recipientEmail };
+        } else {
+          return { status: 'rejected', reason: sendResult.message, recipient: email.recipientEmail };
+        }
+      });
+    });
 
-         toast({ title: "Email Sent!", description: `Email sent to ${recipientEmail} and logged.` });
-       } else {
-         throw new Error(result.message);
-       }
-     } catch (error: any) {
-       console.error("Send/Log Error:", error);
-       toast({ variant: "destructive", title: "Failed to Send", description: error.message || "An unknown error occurred." });
-     } finally {
-       setIsSending(false);
-     }
+    const results = await Promise.all(sendPromises);
+    const successfulSends = results.filter(r => r.status === 'fulfilled').length;
+    const failedSends = results.filter(r => r.status === 'rejected');
+    
+    if (successfulSends > 0) {
+      toast({ title: "Campaign Sent!", description: `${successfulSends} emails sent successfully.` });
+    }
+    if (failedSends.length > 0) {
+      toast({ variant: "destructive", title: "Sending Failed", description: `${failedSends.length} emails could not be sent. Check console for details.` });
+      console.error("Failed sends:", failedSends);
+    }
+
+    setIsSending(false);
   }
 
-  const handleSchedule = async () => {
-    if (!recipientEmail) {
-      toast({ variant: "destructive", title: "No Recipient", description: "Please enter a recipient email address." });
-      return;
-    }
+  const handleScheduleAll = async () => {
     if(!selectedDate){
         toast({ variant: "destructive", title: "No date selected", description: "Please select a date to schedule." });
         return;
     }
-    if (!generatedEmail || !user) {
+    if (generatedCampaign.length === 0 || !user) {
         toast({ variant: "destructive", title: "Nothing to schedule", description: "Please generate an email first." });
         return;
     }
@@ -172,34 +232,38 @@ export function EmailCampaignBuilder() {
     scheduleDateTime.setHours(hours, minutes, 0, 0); // set seconds and ms to 0
 
     try {
-        await addDoc(collection(db, 'scheduledEmails'), {
-            recipientEmail: recipientEmail,
-            subject: generatedSubject,
-            content: generatedEmail.replace(/\n/g, '<br>'),
+      const schedulePromises = generatedCampaign.map(email => {
+         return addDoc(collection(db, 'scheduledEmails'), {
+            recipientEmail: email.recipientEmail,
+            subject: email.subject,
+            content: email.content.replace(/\n/g, '<br>'),
             sendAt: Timestamp.fromDate(scheduleDateTime),
             status: 'Scheduled',
             userId: user.uid,
         });
-        toast({ title: "Email Scheduled!", description: `Your campaign to ${recipientEmail} is scheduled for ${scheduleDateTime.toLocaleString()}.` });
+      });
+      await Promise.all(schedulePromises);
+
+      toast({ title: "Campaign Scheduled!", description: `${generatedCampaign.length} emails scheduled for ${scheduleDateTime.toLocaleString()}.` });
     } catch(error) {
         console.error("Scheduling error:", error);
-        toast({ variant: "destructive", title: "Scheduling Failed", description: "Could not save the scheduled email." });
+        toast({ variant: "destructive", title: "Scheduling Failed", description: "Could not save the scheduled campaign." });
     }
   }
+
+  const handleEmailChange = (index: number, field: 'subject' | 'content', value: string) => {
+    const newCampaign = [...generatedCampaign];
+    newCampaign[index] = { ...newCampaign[index], [field]: value };
+    setGeneratedCampaign(newCampaign);
+  };
   
   const handleEmojiClick = (emoji: string) => {
-    const textarea = emailTextareaRef.current;
-    if (textarea) {
-      const start = textarea.selectionStart;
-      const end = textarea.selectionEnd;
-      const text = textarea.value;
-      const newText = text.substring(0, start) + emoji + text.substring(end);
-      setGeneratedEmail(newText);
-
-      setTimeout(() => {
-        textarea.focus();
-        textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
-      }, 0);
+    if (currentSlide > 0 && generatedCampaign[currentSlide - 1]) {
+      const currentIndex = currentSlide - 1;
+      const currentContent = generatedCampaign[currentIndex].content;
+      // This is a simplified way to insert emoji. A ref to the active textarea would be better.
+      const newContent = currentContent + emoji;
+      handleEmailChange(currentIndex, 'content', newContent);
     }
   };
 
@@ -210,7 +274,7 @@ export function EmailCampaignBuilder() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><FileText className="size-5" /> 1. Add Customer Data</CardTitle>
-            <CardDescription>Upload a CSV or paste raw data. Then get an AI summary.</CardDescription>
+            <CardDescription>Upload a CSV with customer emails and data to personalize your campaign.</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="csv">
@@ -219,10 +283,10 @@ export function EmailCampaignBuilder() {
                 <TabsTrigger value="manual">Manual Entry</TabsTrigger>
               </TabsList>
               <TabsContent value="csv" className="mt-4">
-                <Input type="file" accept=".csv" onChange={handleFileChange} />
+                <Input type="file" accept=".csv, text/csv" onChange={handleFileChange} />
               </TabsContent>
               <TabsContent value="manual" className="mt-4">
-                <Textarea placeholder="Paste CSV data here..." value={customerData} onChange={(e) => setCustomerData(e.target.value)} rows={8} />
+                <Textarea placeholder="Paste CSV data here (e.g., name,email,product)..." value={customerData} onChange={(e) => handleManualDataChange(e.target.value)} rows={8} />
               </TabsContent>
             </Tabs>
           </CardContent>
@@ -238,6 +302,7 @@ export function EmailCampaignBuilder() {
         <Card>
           <CardHeader>
             <CardTitle>Data Summary</CardTitle>
+            <CardDescription>An AI-powered overview of your customer data.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 text-sm text-muted-foreground whitespace-pre-wrap">
              {isSummarizing && <div className="space-y-2">
@@ -254,8 +319,8 @@ export function EmailCampaignBuilder() {
       {/* Column 2: Composer */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Sparkles className="size-5" /> 2. Compose Email</CardTitle>
-          <CardDescription>Select a template and provide product details.</CardDescription>
+          <CardTitle className="flex items-center gap-2"><Sparkles className="size-5" /> 2. Compose Campaign</CardTitle>
+          <CardDescription>Select a template and provide product details for the AI.</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
@@ -294,9 +359,9 @@ export function EmailCampaignBuilder() {
                   <FormMessage />
                 </FormItem>
               )} />
-              <Button type="submit" disabled={isGenerating} className="w-full">
+              <Button type="submit" disabled={isGenerating || customers.length === 0} className="w-full">
                 {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Generate Email
+                Generate Campaign
               </Button>
             </form>
           </Form>
@@ -310,7 +375,7 @@ export function EmailCampaignBuilder() {
             <CardTitle className="flex items-center gap-2"><Send className="size-5" /> 3. Preview & Send</CardTitle>
              <Popover>
                 <PopoverTrigger asChild>
-                    <Button variant="ghost" size="icon"><Smile className="size-5" /></Button>
+                    <Button variant="ghost" size="icon" disabled={generatedCampaign.length === 0}><Smile className="size-5" /></Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto">
                     <div className="grid grid-cols-6 gap-2">
@@ -321,61 +386,56 @@ export function EmailCampaignBuilder() {
                 </PopoverContent>
             </Popover>
           </div>
-          <CardDescription>Review, edit, and send the generated email.</CardDescription>
+          <CardDescription>Review, edit, and send the generated campaign emails.</CardDescription>
         </CardHeader>
-        <CardContent className="flex-1 flex flex-col gap-4">
-          <div>
-            <Label htmlFor="recipient-email">Recipient Email</Label>
-            <Input 
-              id="recipient-email"
-              type="email"
-              placeholder="customer@example.com"
-              value={recipientEmail}
-              onChange={(e) => setRecipientEmail(e.target.value)}
-            />
-          </div>
-          <div className="bg-background rounded-lg border p-4 text-sm flex flex-col gap-2 flex-1">
-            {isGenerating && <div className="space-y-2">
-                <Skeleton className="h-8 w-3/4" />
-                <div className="pt-4 space-y-2">
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-3/4" />
-                  <Skeleton className="h-4 w-full mt-4" />
-                  <Skeleton className="h-4 w-1/2" />
-                </div>
-             </div>}
-            {!isGenerating && !generatedEmail && !generatedSubject && <div className="text-muted-foreground flex items-center justify-center h-full">Your generated email will appear here.</div>}
-            {(!isGenerating && (generatedEmail || generatedSubject || form.formState.isDirty)) && (
-                <>
-                    <Input 
-                        placeholder="Email Subject"
-                        value={generatedSubject}
-                        onChange={(e) => setGeneratedSubject(e.target.value)}
-                        className="font-bold text-base border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
-                    />
-                    <Textarea 
-                        ref={emailTextareaRef}
-                        placeholder="Email Body..."
-                        value={generatedEmail}
-                        onChange={(e) => setGeneratedEmail(e.target.value)}
-                        className="flex-1 resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0 font-body whitespace-pre-wrap"
-                    />
-                </>
-            )}
-          </div>
+        <CardContent className="flex-1 flex flex-col gap-4 justify-center">
+          {isGenerating && <div className="text-center text-muted-foreground"><Loader2 className="h-8 w-8 animate-spin mx-auto mb-2" /><p>Generating {customers.length} emails...</p></div>}
+          {!isGenerating && generatedCampaign.length === 0 && <div className="text-muted-foreground text-center">Your generated campaign will appear here.</div>}
+          
+          {generatedCampaign.length > 0 && !isGenerating && (
+            <Carousel setApi={setCarouselApi} className="w-full">
+              <CarouselContent>
+                {generatedCampaign.map((email, index) => (
+                  <CarouselItem key={index}>
+                    <div className="p-1">
+                      <div className="bg-background rounded-lg border p-4 text-sm flex flex-col gap-2 h-[300px]">
+                        <div className="font-medium text-muted-foreground">To: <span className="font-bold text-foreground">{email.recipientEmail}</span></div>
+                        <Input 
+                            placeholder="Email Subject"
+                            value={email.subject}
+                            onChange={(e) => handleEmailChange(index, 'subject', e.target.value)}
+                            className="font-bold text-base border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
+                        />
+                        <Textarea 
+                            placeholder="Email Body..."
+                            value={email.content}
+                            onChange={(e) => handleEmailChange(index, 'content', e.target.value)}
+                            className="flex-1 resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0 font-body whitespace-pre-wrap"
+                        />
+                      </div>
+                    </div>
+                  </CarouselItem>
+                ))}
+              </CarouselContent>
+              <CarouselPrevious />
+              <CarouselNext />
+              <div className="py-2 text-center text-sm text-muted-foreground">
+                Email {currentSlide} of {slideCount}
+              </div>
+            </Carousel>
+          )}
+
         </CardContent>
         <CardFooter className="flex-col sm:flex-row gap-2">
-            <Button onClick={handleSend} disabled={!generatedEmail || isGenerating || isSending || !recipientEmail} className="w-full">
+            <Button onClick={handleSendAll} disabled={generatedCampaign.length === 0 || isGenerating || isSending} className="w-full">
               {isSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Send Email
+              Send All ({generatedCampaign.length})
             </Button>
-            <Button onClick={handleCopy} variant="secondary" disabled={!generatedEmail || isGenerating} className="w-full"><Copy className="size-4 mr-2"/>Copy</Button>
-             <Popover>
+            <Popover>
                 <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !selectedDate && "text-muted-foreground")} disabled={!generatedEmail || isGenerating || !recipientEmail} >
+                    <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !selectedDate && "text-muted-foreground")} disabled={generatedCampaign.length === 0 || isGenerating} >
                         <CalendarIconLucide className="mr-2 h-4 w-4" />
-                        {selectedDate ? `${selectedDate.toLocaleDateString()} at ${scheduleTime}` : <span>Schedule</span>}
+                        {selectedDate ? `${selectedDate.toLocaleDateString()} at ${scheduleTime}` : <span>Schedule All</span>}
                     </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">
@@ -385,7 +445,7 @@ export function EmailCampaignBuilder() {
                             <Label htmlFor="time">Time</Label>
                             <Input id="time" type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} />
                         </div>
-                        <Button onClick={handleSchedule} size="sm" className="w-full">Confirm Schedule</Button>
+                        <Button onClick={handleScheduleAll} size="sm" className="w-full">Confirm Schedule</Button>
                     </div>
                 </PopoverContent>
             </Popover>
@@ -394,3 +454,6 @@ export function EmailCampaignBuilder() {
     </div>
   );
 }
+
+
+    
