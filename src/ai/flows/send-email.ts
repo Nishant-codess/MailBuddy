@@ -2,14 +2,14 @@
 
 /**
  * @fileOverview A flow for sending an email and logging it to Firestore.
- * - sendEmail - Sends an email using SendGrid and logs the action.
+ * - sendEmail - Sends an email using Nodemailer (SMTP) and logs the action.
  * - SendEmailInput - The input type for the sendEmail function.
  * - SendEmailOutput - The return type for the sendEmail function.
  */
 
 import { ai } from '@/ai/genkit';
 import { z } from 'genkit';
-import sgMail from '@sendgrid/mail';
+import nodemailer from 'nodemailer';
 import { collection, addDoc, Timestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
@@ -39,27 +39,34 @@ const sendEmailFlow = ai.defineFlow(
     outputSchema: SendEmailOutputSchema,
   },
   async ({ recipientEmail, subject, htmlContent, userId }) => {
-    const sendgridApiKey = process.env.SENDGRID_API_KEY;
-    const fromEmail = process.env.SENDGRID_FROM_EMAIL;
+    const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
 
-    if (!sendgridApiKey || !fromEmail || sendgridApiKey === 'YOUR_SENDGRID_API_KEY') {
-      const errorMessage = 'SendGrid API Key or From Email is not configured in .env file.';
+    if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+      const errorMessage = 'SMTP configuration is missing in .env file.';
       console.error(errorMessage);
       return { success: false, message: errorMessage };
     }
 
-    sgMail.setApiKey(sendgridApiKey);
+    const transporter = nodemailer.createTransport({
+      host: SMTP_HOST,
+      port: Number(SMTP_PORT),
+      secure: Number(SMTP_PORT) === 465, // Use true for port 465, false for others
+      auth: {
+        user: SMTP_USER,
+        pass: SMTP_PASS,
+      },
+    });
 
-    const msg = {
+    const mailOptions = {
+      from: `"MailBuddy" <${SMTP_USER}>`,
       to: recipientEmail,
-      from: fromEmail,
       subject: subject,
       html: htmlContent,
     };
 
     try {
       // Send the email
-      await sgMail.send(msg);
+      await transporter.sendMail(mailOptions);
 
       // Log the email to Firestore
       const logRef = await addDoc(collection(db, 'emailLogs'), {
@@ -77,17 +84,9 @@ const sendEmailFlow = ai.defineFlow(
         logId: logRef.id,
       };
     } catch (error: any) {
-      console.error('SendGrid or Firestore Error:', error);
-
-      let errorMessage = 'An unexpected error occurred.';
+      console.error('Nodemailer or Firestore Error:', error);
       
-      // Check for detailed SendGrid errors
-      if (error.response?.body?.errors) {
-        errorMessage = error.response.body.errors.map((e: any) => e.message).join(' ');
-        console.error('SendGrid Error Body:', error.response.body);
-      } else if (error.message) {
-        errorMessage = error.message;
-      }
+      let errorMessage = error.message || 'An unexpected error occurred.';
 
       return {
         success: false,
