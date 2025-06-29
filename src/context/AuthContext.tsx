@@ -49,38 +49,48 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
       setLoading(true);
-      if (user) {
-        // User is signed in.
-        const userRef = doc(db, 'users', user.uid);
-        const docSnap = await getDoc(userRef);
-        // This syncs user data on first login after signup, or updates last login time
-        if (!docSnap.exists()) {
-          await setDoc(userRef, {
-            uid: user.uid,
-            email: user.email,
-            displayName: user.displayName,
-            photoURL: user.photoURL,
-            createdAt: serverTimestamp(),
-            lastLogin: serverTimestamp(),
-          });
+      try {
+        if (user) {
+          // User is signed in.
+          const userRef = doc(db, 'users', user.uid);
+          const docSnap = await getDoc(userRef);
+          
+          if (!docSnap.exists()) {
+            await setDoc(userRef, {
+              uid: user.uid,
+              email: user.email,
+              displayName: user.displayName,
+              photoURL: user.photoURL,
+              createdAt: serverTimestamp(),
+              lastLogin: serverTimestamp(),
+            });
+          } else {
+            await setDoc(userRef, { lastLogin: serverTimestamp() }, { merge: true });
+          }
+          
+          setUser(user);
+          if (pathname === '/login' || pathname === '/signup') {
+            router.push('/dashboard');
+          }
         } else {
-          // Existing user, update last login time
-          await setDoc(userRef, { lastLogin: serverTimestamp() }, { merge: true });
+          // User is signed out.
+          setUser(null);
+          if (pathname.startsWith('/dashboard')) {
+              router.push('/login');
+          }
         }
-        setUser(user);
-        // If user is on an auth page, redirect to dashboard
-        if (pathname === '/login' || pathname === '/signup') {
-          router.push('/dashboard');
-        }
-      } else {
-        // User is signed out.
+      } catch (error) {
+        console.error("Error during auth state change:", error);
+        toast({
+          variant: "destructive",
+          title: "Authentication Error",
+          description: "Could not connect to the database. Please check Firestore rules and configuration.",
+        });
         setUser(null);
-        if (pathname.startsWith('/dashboard')) {
-            router.push('/login');
-        }
+      } finally {
+        setLoading(false);
+        setIsAuthenticating(false);
       }
-      setLoading(false);
-      setIsAuthenticating(false);
     });
 
     return () => unsubscribe();
