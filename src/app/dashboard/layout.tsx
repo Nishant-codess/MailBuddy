@@ -18,17 +18,102 @@ import { UserNav } from '@/components/user-nav';
 import Logo from '@/components/logo';
 import { useAuth } from '@/context/AuthContext';
 import { useEffect } from 'react';
+import { db } from '@/lib/firebase';
+import { collection, query, where, getDocs, updateDoc, doc, Timestamp, addDoc } from 'firebase/firestore';
+import { sendEmail } from '@/ai/flows/send-email';
+import { useToast } from "@/hooks/use-toast";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, loading } = useAuth();
   const router = useRouter();
+  const { toast } = useToast();
 
   useEffect(() => {
     if (!loading && !user) {
       router.push('/login');
     }
   }, [user, loading, router]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    const checkAndSendScheduledEmails = async () => {
+      try {
+        const scheduledEmailsCollection = collection(db, 'scheduledEmails');
+        const q = query(
+          scheduledEmailsCollection,
+          where('userId', '==', user.uid),
+          where('status', '==', 'Scheduled'),
+          where('sendAt', '<=', Timestamp.now())
+        );
+
+        const querySnapshot = await getDocs(q);
+        if (querySnapshot.empty) {
+          return;
+        }
+
+        querySnapshot.forEach(async (docSnapshot) => {
+          const email = docSnapshot.data();
+          const emailId = docSnapshot.id;
+
+          try {
+            // Mark as 'Sending' to prevent duplicate sends from multiple tabs
+            const emailDocRef = doc(db, 'scheduledEmails', emailId);
+            await updateDoc(emailDocRef, { status: 'Sending' });
+
+            const sendResult = await sendEmail({
+              recipientEmail: email.recipientEmail,
+              subject: email.subject,
+              htmlContent: email.content,
+            });
+
+            if (sendResult.success) {
+              await updateDoc(emailDocRef, { status: 'Sent' });
+
+              await addDoc(collection(db, 'emailLogs'), {
+                recipientEmail: email.recipientEmail,
+                subject: email.subject,
+                content: email.content,
+                sentAt: Timestamp.now(),
+                status: 'Sent',
+                userId: user.uid,
+              });
+              
+              toast({
+                title: "Campaign Sent!",
+                description: `Your scheduled campaign "${email.subject}" was just sent.`,
+              });
+
+            } else {
+              await updateDoc(emailDocRef, { status: 'Failed', errorMessage: sendResult.message });
+              console.error(`Failed to send scheduled email: ${emailId}. Reason: ${sendResult.message}`);
+               toast({
+                variant: "destructive",
+                title: "Campaign Failed to Send",
+                description: `Scheduled campaign "${email.subject}" could not be sent. Reason: ${sendResult.message}`,
+              });
+            }
+          } catch (error: any) {
+              const emailDocRef = doc(db, 'scheduledEmails', emailId);
+              await updateDoc(emailDocRef, { status: 'Failed', errorMessage: error.message || 'An unexpected error occurred during processing.' });
+              console.error(`Error processing scheduled email ${emailId}:`, error);
+          }
+        });
+      } catch (error) {
+        console.error("Error checking for scheduled emails:", error);
+      }
+    };
+
+    const timeoutId = setTimeout(checkAndSendScheduledEmails, 3000); 
+    const intervalId = setInterval(checkAndSendScheduledEmails, 60000);
+
+    return () => {
+        clearTimeout(timeoutId);
+        clearInterval(intervalId);
+    }
+
+  }, [user, toast]);
 
   if (loading || !user) {
     return (
