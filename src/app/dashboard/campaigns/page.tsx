@@ -14,8 +14,6 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { PlusCircle } from "lucide-react"
 
 const campaigns = [
   {
@@ -72,12 +70,6 @@ export default function CampaignsPage() {
           <p className="text-muted-foreground">
             View and manage your email campaigns.
           </p>
-        </div>
-        <div className="flex items-center space-x-2">
-            <Button>
-                <PlusCircle className="mr-2 h-4 w-4" />
-                New Campaign
-            </Button>
         </div>
       </div>
        <Card>
