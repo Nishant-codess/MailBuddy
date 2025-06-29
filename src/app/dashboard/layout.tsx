@@ -1,5 +1,6 @@
 "use client"
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { BarChart, Home, Mails, Settings, Users } from 'lucide-react';
 import {
   Sidebar,
@@ -15,6 +16,8 @@ import { UserNav } from '@/components/user-nav';
 import Logo from '@/components/logo';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
+
   return (
     <SidebarProvider>
       <Sidebar>
@@ -29,33 +32,43 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <SidebarContent>
           <SidebarMenu>
             <SidebarMenuItem>
-              <SidebarMenuButton href="/dashboard" isActive>
-                <Home />
-                Dashboard
+              <SidebarMenuButton asChild isActive={pathname === '/dashboard'}>
+                <Link href="/dashboard">
+                  <Home />
+                  Dashboard
+                </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton href="#">
-                <Users />
-                Customers
+              <SidebarMenuButton asChild isActive={pathname.startsWith('/dashboard/customers')}>
+                <Link href="/dashboard/customers">
+                  <Users />
+                  Customers
+                </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton href="#">
-                <Mails />
-                Campaigns
+              <SidebarMenuButton asChild isActive={pathname.startsWith('/dashboard/campaigns')}>
+                <Link href="/dashboard/campaigns">
+                  <Mails />
+                  Campaigns
+                </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton href="#">
-                <BarChart />
-                Analytics
+              <SidebarMenuButton asChild isActive={pathname.startsWith('/dashboard/analytics')}>
+                <Link href="/dashboard/analytics">
+                  <BarChart />
+                  Analytics
+                </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
             <SidebarMenuItem>
-              <SidebarMenuButton href="#">
-                <Settings />
-                Settings
+              <SidebarMenuButton asChild isActive={pathname.startsWith('/dashboard/settings')}>
+                <Link href="/dashboard/settings">
+                  <Settings />
+                  Settings
+                </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
