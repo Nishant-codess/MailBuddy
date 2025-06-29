@@ -2,7 +2,7 @@
 'use client';
 
 import React, {createContext, useContext, useState, useEffect, ReactNode} from 'react';
-import {User, onAuthStateChanged, signInWithPopup, signOut} from 'firebase/auth';
+import {User, onAuthStateChanged, signInWithRedirect, signOut} from 'firebase/auth';
 import {auth, googleProvider, createUserProfileDocument} from '@/lib/firebase';
 import {useRouter} from 'next/navigation';
 
@@ -22,8 +22,9 @@ export const AuthProvider = ({children}: {children: ReactNode}) => {
 
   const login = async () => {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      // The onAuthStateChanged listener will handle the user creation and state update.
+      await signInWithRedirect(auth, googleProvider);
+      // The onAuthStateChanged listener will handle the user creation and state update
+      // after the redirect.
     } catch (error) {
       console.error('Authentication error:', error);
     }
