@@ -1,9 +1,35 @@
 'use client';
 
-import React, {createContext, useContext, useState, useEffect, ReactNode} from 'react';
-import {User, onAuthStateChanged, signInWithPopup, signInWithRedirect, signOut} from 'firebase/auth';
-import {auth, googleProvider, createUserProfileDocument} from '@/lib/firebase';
-import {useRouter} from 'next/navigation';
+import React, { createContext, useContext, ReactNode } from 'react';
+import type { User } from 'firebase/auth';
+
+// Create a mock user object that matches the User type.
+const mockUser: User = {
+  uid: 'mock-user-id',
+  email: 'owner@smb.com',
+  displayName: 'Small Business Owner',
+  photoURL: '',
+  emailVerified: true,
+  isAnonymous: false,
+  metadata: {},
+  providerData: [],
+  providerId: 'mock',
+  tenantId: null,
+  delete: async () => {},
+  getIdToken: async () => 'mock-token',
+  getIdTokenResult: async () => ({
+    token: 'mock-token',
+    claims: {},
+    authTime: new Date().toISOString(),
+    issuedAtTime: new Date().toISOString(),
+    signInProvider: null,
+    signInSecondFactor: null,
+    expirationTime: new Date(Date.now() + 3600 * 1000).toISOString(),
+   }),
+  reload: async () => {},
+  toJSON: () => ({}),
+};
+
 
 interface AuthContextType {
   user: User | null;
@@ -15,53 +41,27 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({children}: {children: ReactNode}) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const router = useRouter();
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = async () => {
-    if (isLoggingIn) return;
-    setIsLoggingIn(true);
-    try {
-      await signInWithPopup(auth, googleProvider);
-    } catch (error: any) {
-      if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
-        await signInWithRedirect(auth, googleProvider);
-      } else {
-        console.error('Authentication error:', error);
-        throw error;
-      }
-    } finally {
-      setIsLoggingIn(false);
-    }
+    // This function no longer does anything.
+    return Promise.resolve();
   };
 
   const logout = async () => {
-    try {
-      await signOut(auth);
-      router.push('/');
-    } catch (error) {
-      console.error('Logout error:', error);
-    }
+    // This function no longer does anything.
+    console.log("Logout clicked, but it's a no-op now.");
+    return Promise.resolve();
   };
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (userAuth) => {
-      if (userAuth) {
-        await createUserProfileDocument(userAuth);
-        setUser(userAuth);
-      } else {
-        setUser(null);
-      }
-      setLoading(false);
-    });
-
-    return () => unsubscribe();
-  }, []);
-
-  const value = {user, loading, isLoggingIn, login, logout};
+  // Always provide the mock user and set loading to false.
+  const value = {
+    user: mockUser,
+    loading: false,
+    isLoggingIn: false,
+    login,
+    logout
+  };
 
   return (
     <AuthContext.Provider value={value}>

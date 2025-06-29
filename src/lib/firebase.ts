@@ -1,8 +1,6 @@
 
 import {initializeApp, getApps, getApp} from 'firebase/app';
-import {getAuth, GoogleAuthProvider} from 'firebase/auth';
-import {getFirestore, doc, setDoc, serverTimestamp} from 'firebase/firestore';
-import type {User} from 'firebase/auth';
+import {getFirestore} from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
@@ -15,37 +13,6 @@ const firebaseConfig = {
 
 // Initialize Firebase
 const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
-const auth = getAuth(app);
 const db = getFirestore(app);
-const googleProvider = new GoogleAuthProvider();
 
-/**
- * Creates a user document in Firestore.
- * @param userAuth The user object from Firebase Authentication.
- */
-export const createUserProfileDocument = async (userAuth: User) => {
-  if (!userAuth) return;
-
-  const userRef = doc(db, `users/${userAuth.uid}`);
-
-  const {displayName, email, photoURL} = userAuth;
-  const createdAt = serverTimestamp();
-
-  try {
-    await setDoc(
-      userRef,
-      {
-        displayName,
-        email,
-        photoURL,
-        createdAt,
-        lastSeen: serverTimestamp(),
-      },
-      {merge: true}
-    );
-  } catch (error) {
-    console.error('Error creating user document', error);
-  }
-};
-
-export {app, auth, db, googleProvider};
+export {app, db};

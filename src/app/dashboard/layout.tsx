@@ -1,8 +1,8 @@
 
 "use client"
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
-import { BarChart, Home, Loader2, Mails, Settings, Users } from 'lucide-react';
+import { usePathname } from 'next/navigation';
+import { BarChart, Home, Mails, Settings, Users } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -15,27 +15,9 @@ import {
 } from '@/components/ui/sidebar';
 import { UserNav } from '@/components/user-nav';
 import Logo from '@/components/logo';
-import { useAuth } from '@/context/AuthContext';
-import { useEffect } from 'react';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { user, loading } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!loading && !user) {
-      router.push('/');
-    }
-  }, [user, loading, router]);
-
-  if (loading || !user) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center">
-        <Loader2 className="h-12 w-12 animate-spin text-primary" />
-      </div>
-    );
-  }
 
   return (
     <SidebarProvider>
