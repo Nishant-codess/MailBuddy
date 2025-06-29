@@ -3,33 +3,48 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import {
   onAuthStateChanged,
-  signInWithRedirect,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
   signOut,
-  GoogleAuthProvider,
   User,
 } from 'firebase/auth';
 import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { useRouter, usePathname } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
+
+// Define the shape of the signup data
+interface SignUpData {
+  name: string;
+  email: string;
+  password: string;
+}
+
+// Define the shape of the login data
+interface LoginData {
+  email: string;
+  password: string;
+}
 
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  isLoggingIn: boolean;
-  login: () => Promise<void>;
+  isAuthenticating: boolean;
+  login: (data: LoginData) => Promise<void>;
+  signup: (data: SignUpData) => Promise<void>;
   logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const googleProvider = new GoogleAuthProvider();
-
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const { toast } = useToast();
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (user) => {
@@ -38,8 +53,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         // User is signed in.
         const userRef = doc(db, 'users', user.uid);
         const docSnap = await getDoc(userRef);
+        // This syncs user data on first login after signup, or updates last login time
         if (!docSnap.exists()) {
-          // New user, create a document in Firestore
           await setDoc(userRef, {
             uid: user.uid,
             email: user.email,
@@ -53,7 +68,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           await setDoc(userRef, { lastLogin: serverTimestamp() }, { merge: true });
         }
         setUser(user);
-        if (pathname === '/login') {
+        // If user is on an auth page, redirect to dashboard
+        if (pathname === '/login' || pathname === '/signup') {
           router.push('/dashboard');
         }
       } else {
@@ -64,20 +80,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
       }
       setLoading(false);
-      setIsLoggingIn(false);
+      setIsAuthenticating(false);
     });
 
     return () => unsubscribe();
-  }, [router, pathname]);
+  }, [router, pathname, toast]);
 
-  const login = async () => {
-    setIsLoggingIn(true);
+  const login = async ({ email, password }: LoginData) => {
+    setIsAuthenticating(true);
     try {
-      // Use redirect which is more reliable than popup
-      await signInWithRedirect(auth, googleProvider);
-    } catch (error) {
+      await signInWithEmailAndPassword(auth, email, password);
+      // onAuthStateChanged will handle redirect and state updates
+    } catch (error: any) {
       console.error("Login failed:", error);
-      setIsLoggingIn(false);
+      toast({ variant: "destructive", title: "Login Failed", description: "Please check your email and password." });
+      setIsAuthenticating(false);
+    }
+  };
+  
+  const signup = async ({ name, email, password }: SignUpData) => {
+    setIsAuthenticating(true);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      await updateProfile(userCredential.user, { displayName: name });
+      
+      // Manually update user in state, since onAuthStateChanged might be slow
+      setUser({ ...userCredential.user, displayName: name });
+
+      // onAuthStateChanged will also run and handle firestore doc creation
+    } catch (error: any) {
+      console.error("Signup failed:", error);
+      toast({ variant: "destructive", title: "Signup Failed", description: error.message });
+      setIsAuthenticating(false);
     }
   };
 
@@ -85,16 +119,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       await signOut(auth);
       router.push('/login');
-    } catch (error) {
+    } catch (error: any) {
       console.error("Logout failed:", error);
+      toast({ variant: "destructive", title: "Logout Failed", description: error.message });
     }
   };
 
   const value = {
     user,
     loading,
-    isLoggingIn,
+    isAuthenticating,
     login,
+    signup,
     logout,
   };
 
