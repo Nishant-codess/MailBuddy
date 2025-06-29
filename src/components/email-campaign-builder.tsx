@@ -120,6 +120,7 @@ export function EmailCampaignBuilder() {
          recipientEmail: user.email, // Sending test to self
          subject: generatedSubject,
          htmlContent: generatedEmail.replace(/\n/g, '<br>'),
+         userId: user.uid,
        });
        if (result.success) {
          toast({ title: "Email Sent!", description: `Test email sent to ${user.email}.` });
@@ -150,6 +151,7 @@ export function EmailCampaignBuilder() {
             content: generatedEmail.replace(/\n/g, '<br>'),
             sendAt: Timestamp.fromDate(selectedDate),
             status: 'Scheduled',
+            userId: user.uid,
         });
         toast({ title: "Email Scheduled!", description: `Your campaign is scheduled for ${selectedDate.toLocaleDateString()}.` });
     } catch(error) {

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp } from 'firebase/firestore';
+import { collection, getDocs, query, orderBy, Timestamp, where } from 'firebase/firestore';
 import { format } from 'date-fns';
 import {
   Card,
@@ -29,6 +29,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { useAuth } from '@/context/AuthContext';
 
 interface EmailLog {
   id: string;
@@ -36,17 +37,24 @@ interface EmailLog {
   subject: string;
   content: string;
   sentAt: Date;
+  userId: string;
 }
 
 export default function EmailLogsPage() {
   const [logs, setLogs] = useState<EmailLog[]>([]);
   const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
 
   useEffect(() => {
     const fetchLogs = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
       try {
+        setLoading(true);
         const logsCollection = collection(db, 'emailLogs');
-        const q = query(logsCollection, orderBy('sentAt', 'desc'));
+        const q = query(logsCollection, where('userId', '==', user.uid), orderBy('sentAt', 'desc'));
         const querySnapshot = await getDocs(q);
         const logsData = querySnapshot.docs.map(doc => {
           const data = doc.data();
@@ -65,7 +73,7 @@ export default function EmailLogsPage() {
     };
 
     fetchLogs();
-  }, []);
+  }, [user]);
 
   return (
     <div className="flex-1 space-y-8 p-4 md:p-8">

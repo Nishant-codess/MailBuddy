@@ -17,6 +17,7 @@ const SendEmailInputSchema = z.object({
   recipientEmail: z.string().email().describe('The email address of the recipient.'),
   subject: z.string().describe('The subject line of the email.'),
   htmlContent: z.string().describe('The HTML content of the email body.'),
+  userId: z.string().describe('The UID of the user sending the email.'),
 });
 export type SendEmailInput = z.infer<typeof SendEmailInputSchema>;
 
@@ -37,7 +38,7 @@ const sendEmailFlow = ai.defineFlow(
     inputSchema: SendEmailInputSchema,
     outputSchema: SendEmailOutputSchema,
   },
-  async ({ recipientEmail, subject, htmlContent }) => {
+  async ({ recipientEmail, subject, htmlContent, userId }) => {
     const sendgridApiKey = process.env.SENDGRID_API_KEY;
     const fromEmail = process.env.SENDGRID_FROM_EMAIL;
 
@@ -67,6 +68,7 @@ const sendEmailFlow = ai.defineFlow(
         content: htmlContent,
         sentAt: Timestamp.now(),
         status: 'Sent',
+        userId: userId,
       });
 
       return {
