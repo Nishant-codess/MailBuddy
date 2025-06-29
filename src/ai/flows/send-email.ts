@@ -42,7 +42,7 @@ const sendEmailFlow = ai.defineFlow(
     const sendgridApiKey = process.env.SENDGRID_API_KEY;
     const fromEmail = process.env.SENDGRID_FROM_EMAIL;
 
-    if (!sendgridApiKey || !fromEmail) {
+    if (!sendgridApiKey || !fromEmail || sendgridApiKey === 'YOUR_SENDGRID_API_KEY') {
       const errorMessage = 'SendGrid API Key or From Email is not configured in .env file.';
       console.error(errorMessage);
       return { success: false, message: errorMessage };
@@ -78,12 +78,20 @@ const sendEmailFlow = ai.defineFlow(
       };
     } catch (error: any) {
       console.error('SendGrid or Firestore Error:', error);
-       if (error.response) {
-         console.error(error.response.body)
-       }
+
+      let errorMessage = 'An unexpected error occurred.';
+      
+      // Check for detailed SendGrid errors
+      if (error.response?.body?.errors) {
+        errorMessage = error.response.body.errors.map((e: any) => e.message).join(' ');
+        console.error('SendGrid Error Body:', error.response.body);
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+
       return {
         success: false,
-        message: 'Failed to send or log email.',
+        message: `Failed to send email. Reason: ${errorMessage}`,
       };
     }
   }
