@@ -120,14 +120,25 @@ export function EmailCampaignBuilder() {
          recipientEmail: user.email, // Sending test to self
          subject: generatedSubject,
          htmlContent: generatedEmail.replace(/\n/g, '<br>'),
-         userId: user.uid,
        });
+
        if (result.success) {
-         toast({ title: "Email Sent!", description: `Test email sent to ${user.email}.` });
+         // Log to firestore on success
+         await addDoc(collection(db, 'emailLogs'), {
+           recipientEmail: user.email,
+           subject: generatedSubject,
+           content: generatedEmail.replace(/\n/g, '<br>'),
+           sentAt: Timestamp.now(),
+           status: 'Sent',
+           userId: user.uid,
+         });
+
+         toast({ title: "Email Sent!", description: `Test email sent to ${user.email} and logged.` });
        } else {
          throw new Error(result.message);
        }
      } catch (error: any) {
+       console.error("Send/Log Error:", error);
        toast({ variant: "destructive", title: "Failed to Send", description: error.message || "An unknown error occurred." });
      } finally {
        setIsSending(false);
