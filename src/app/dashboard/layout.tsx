@@ -45,7 +45,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <div className="flex items-center gap-2">
                 <Logo />
                 <div className="flex flex-col">
-                    <h2 className="text-lg font-semibold text-sidebar-foreground">MailGenius</h2>
+                    <h2 className="text-lg font-semibold text-sidebar-foreground">MailBuddy</h2>
                 </div>
             </div>
         </SidebarHeader>

@@ -1,3 +1,4 @@
+
 'use client';
 
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -58,7 +59,7 @@ export default function LoginPage() {
               <Logo />
            </div>
           <CardTitle className="text-2xl">Welcome Back</CardTitle>
-          <CardDescription>Sign in to your MailGenius account.</CardDescription>
+          <CardDescription>Sign in to your MailBuddy account.</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
