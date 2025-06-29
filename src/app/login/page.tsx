@@ -5,6 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { useAuth } from '@/context/AuthContext';
 import { Loader2 } from 'lucide-react';
 import Logo from '@/components/logo';
+import { useRouter } from 'next/navigation';
+import { useEffect } from 'react';
 
 function GoogleIcon() {
     return (
