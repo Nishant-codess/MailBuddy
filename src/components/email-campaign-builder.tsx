@@ -5,6 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { CalendarIcon, Copy, Loader2, Send, Sparkles, Upload, FileText, Calendar as CalendarIconLucide } from 'lucide-react';
+import { addDoc, collection, Timestamp } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -20,6 +21,9 @@ import { useToast } from "@/hooks/use-toast"
 import { cn } from '@/lib/utils';
 import { summarizeCustomerData } from '@/ai/flows/summarize-customer-data';
 import { generateEmail } from '@/ai/flows/generate-email-from-prompt';
+import { sendEmail } from '@/ai/flows/send-email';
+import { useAuth } from '@/context/AuthContext';
+import { db } from '@/lib/firebase';
 
 const formSchema = z.object({
   template: z.string().min(1, { message: "Please select a template." }),
@@ -30,11 +34,14 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 export function EmailCampaignBuilder() {
+  const { user } = useAuth();
   const [customerData, setCustomerData] = useState('');
   const [dataSummary, setDataSummary] = useState('');
   const [generatedEmail, setGeneratedEmail] = useState('');
+  const [generatedSubject, setGeneratedSubject] = useState('');
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [isSending, setIsSending] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>();
 
   const { toast } = useToast();
@@ -80,10 +87,12 @@ export function EmailCampaignBuilder() {
   const onSubmit = async (values: FormValues) => {
     setIsGenerating(true);
     setGeneratedEmail('');
+    setGeneratedSubject('');
     try {
       const prompt = `Template: ${values.template}. Product: ${values.productName}. Additional details: ${values.customPrompt || 'None'}`;
       const result = await generateEmail({ prompt, customerData: customerData || 'No customer data provided.' });
       setGeneratedEmail(result.emailContent);
+      setGeneratedSubject(result.subject);
     } catch (error) {
       console.error(error);
       toast({ variant: "destructive", title: "Error", description: "Failed to generate email." });
@@ -94,20 +103,58 @@ export function EmailCampaignBuilder() {
 
   const handleCopy = () => {
     if (generatedEmail) {
-      navigator.clipboard.writeText(generatedEmail);
-      toast({ title: "Copied!", description: "Email content copied to clipboard." });
+      // A neat trick to copy HTML content as rich text
+      const fullHtml = `<b>${generatedSubject}</b><br/><br/>${generatedEmail}`;
+      const blob = new Blob([fullHtml], { type: 'text/html' });
+      const clipboardItem = new ClipboardItem({ 'text/html': blob });
+      navigator.clipboard.write([clipboardItem]);
+      toast({ title: "Copied!", description: "Email subject and content copied to clipboard." });
     }
   };
   
-  const handleSend = () => {
-     toast({ title: "Email Sent!", description: "Your campaign has been sent (simulated)." });
+  const handleSend = async () => {
+     if (!generatedEmail || !user?.email) return;
+     setIsSending(true);
+     try {
+       const result = await sendEmail({
+         recipientEmail: user.email, // Sending test to self
+         subject: generatedSubject,
+         htmlContent: generatedEmail.replace(/\n/g, '<br>'),
+       });
+       if (result.success) {
+         toast({ title: "Email Sent!", description: `Test email sent to ${user.email}.` });
+       } else {
+         throw new Error(result.message);
+       }
+     } catch (error: any) {
+       toast({ variant: "destructive", title: "Failed to Send", description: error.message || "An unknown error occurred." });
+     } finally {
+       setIsSending(false);
+     }
   }
 
-  const handleSchedule = () => {
-    if(selectedDate){
-        toast({ title: "Email Scheduled!", description: `Your campaign is scheduled for ${selectedDate.toLocaleDateString()} (simulated).` });
-    } else {
+  const handleSchedule = async () => {
+    if(!selectedDate){
         toast({ variant: "destructive", title: "No date selected", description: "Please select a date to schedule." });
+        return;
+    }
+    if (!generatedEmail || !user?.email) {
+        toast({ variant: "destructive", title: "Nothing to schedule", description: "Please generate an email first." });
+        return;
+    }
+
+    try {
+        await addDoc(collection(db, 'scheduledEmails'), {
+            recipientEmail: user.email, // For this demo, we schedule a test for the user
+            subject: generatedSubject,
+            content: generatedEmail.replace(/\n/g, '<br>'),
+            sendAt: Timestamp.fromDate(selectedDate),
+            status: 'Scheduled',
+        });
+        toast({ title: "Email Scheduled!", description: `Your campaign is scheduled for ${selectedDate.toLocaleDateString()}.` });
+    } catch(error) {
+        console.error("Scheduling error:", error);
+        toast({ variant: "destructive", title: "Scheduling Failed", description: "Could not save the scheduled email." });
     }
   }
 
@@ -228,11 +275,15 @@ export function EmailCampaignBuilder() {
                 <Skeleton className="h-4 w-1/2" />
              </div>}
             {!isGenerating && !generatedEmail && <div className="text-muted-foreground flex items-center justify-center h-full">Your generated email will appear here.</div>}
+            {generatedSubject && <><p className="font-bold">{generatedSubject}</p><br/></>}
             {generatedEmail}
           </div>
         </CardContent>
         <CardFooter className="flex-col sm:flex-row gap-2">
-            <Button onClick={handleSend} disabled={!generatedEmail || isGenerating} className="w-full">Send Now</Button>
+            <Button onClick={handleSend} disabled={!generatedEmail || isGenerating || isSending} className="w-full">
+              {isSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Send Test
+            </Button>
             <Button onClick={handleCopy} variant="secondary" disabled={!generatedEmail || isGenerating} className="w-full"><Copy className="size-4 mr-2"/>Copy</Button>
              <Popover>
                 <PopoverTrigger asChild>

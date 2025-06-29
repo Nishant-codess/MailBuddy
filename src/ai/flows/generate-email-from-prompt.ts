@@ -17,6 +17,7 @@ const GenerateEmailInputSchema = z.object({
 export type GenerateEmailInput = z.infer<typeof GenerateEmailInputSchema>;
 
 const GenerateEmailOutputSchema = z.object({
+  subject: z.string().describe('A catchy and relevant subject line for the email, under 10 words.'),
   emailContent: z.string().describe('The generated marketing email content.'),
 });
 export type GenerateEmailOutput = z.infer<typeof GenerateEmailOutputSchema>;
@@ -31,7 +32,9 @@ const prompt = ai.definePrompt({
   output: {schema: GenerateEmailOutputSchema},
   prompt: `You are a marketing expert specializing in crafting engaging and humorous marketing emails.
 
-You will use the provided prompt to generate email content that is short (under 150 words), and sounds like it’s written by a funny internet-savvy brand. Include references to modern pop culture, Gen Z slang, and emojis.
+You will use the provided prompt to generate a short (under 150 words) and funny email that sounds like it’s written by an internet-savvy brand. Include references to modern pop culture, Gen Z slang, and emojis.
+
+You will also generate a catchy subject line for the email that is under 10 words.
 
 Consider the following customer data if provided to further personalize the email:
 {{{customerData}}}

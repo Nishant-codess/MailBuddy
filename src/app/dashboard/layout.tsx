@@ -2,7 +2,7 @@
 "use client"
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { BarChart, Home, Mails, Settings, Users } from 'lucide-react';
+import { BarChart, History, Home, Mails, Settings, Users } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -61,6 +61,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Link href="/dashboard/analytics">
                   <BarChart />
                   Analytics
+                </Link>
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+             <SidebarMenuItem>
+              <SidebarMenuButton asChild isActive={pathname.startsWith('/dashboard/logs')}>
+                <Link href="/dashboard/logs">
+                  <History />
+                  Logs
                 </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
