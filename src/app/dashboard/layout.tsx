@@ -41,11 +41,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const checkAndSendScheduledEmails = async () => {
       try {
         const scheduledEmailsCollection = collection(db, 'scheduledEmails');
+        // Simplified query to avoid composite index requirement
         const q = query(
           scheduledEmailsCollection,
           where('userId', '==', user.uid),
-          where('status', '==', 'Scheduled'),
-          where('sendAt', '<=', Timestamp.now())
+          where('status', '==', 'Scheduled')
         );
 
         const querySnapshot = await getDocs(q);
@@ -53,7 +53,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return;
         }
 
-        querySnapshot.forEach(async (docSnapshot) => {
+        const now = Timestamp.now();
+        // Filter for time on the client-side
+        const dueDocs = querySnapshot.docs.filter(doc => {
+            const email = doc.data();
+            return email.sendAt && (email.sendAt as Timestamp) <= now;
+        });
+
+        if (dueDocs.length === 0) {
+            return;
+        }
+
+        dueDocs.forEach(async (docSnapshot) => {
           const email = docSnapshot.data();
           const emailId = docSnapshot.id;
 
@@ -100,8 +111,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               console.error(`Error processing scheduled email ${emailId}:`, error);
           }
         });
-      } catch (error) {
-        console.error("Error checking for scheduled emails:", error);
+      } catch (error: any) {
+        if ((error as any).code === 'failed-precondition') {
+            console.error("Firestore query failed. It might require an index on 'userId' and 'status'. Please check the Firebase console for an index creation link.", error);
+        } else {
+            console.error("Error checking for scheduled emails:", error);
+        }
       }
     };
 
