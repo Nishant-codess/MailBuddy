@@ -46,6 +46,7 @@ export function EmailCampaignBuilder() {
   const [isSending, setIsSending] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [scheduleTime, setScheduleTime] = useState('09:00');
+  const [recipientEmail, setRecipientEmail] = useState('');
   const emailTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { toast } = useToast();
@@ -116,11 +117,15 @@ export function EmailCampaignBuilder() {
   };
   
   const handleSend = async () => {
-     if (!generatedEmail || !user?.email) return;
+     if (!recipientEmail) {
+        toast({ variant: "destructive", title: "No Recipient", description: "Please enter a recipient email address." });
+        return;
+     }
+     if (!generatedEmail || !user) return;
      setIsSending(true);
      try {
        const result = await sendEmail({
-         recipientEmail: user.email, // Sending test to self
+         recipientEmail: recipientEmail,
          subject: generatedSubject,
          htmlContent: generatedEmail.replace(/\n/g, '<br>'),
        });
@@ -128,7 +133,7 @@ export function EmailCampaignBuilder() {
        if (result.success) {
          // Log to firestore on success
          await addDoc(collection(db, 'emailLogs'), {
-           recipientEmail: user.email,
+           recipientEmail: recipientEmail,
            subject: generatedSubject,
            content: generatedEmail.replace(/\n/g, '<br>'),
            sentAt: Timestamp.now(),
@@ -136,7 +141,7 @@ export function EmailCampaignBuilder() {
            userId: user.uid,
          });
 
-         toast({ title: "Email Sent!", description: `Test email sent to ${user.email} and logged.` });
+         toast({ title: "Email Sent!", description: `Email sent to ${recipientEmail} and logged.` });
        } else {
          throw new Error(result.message);
        }
@@ -149,11 +154,15 @@ export function EmailCampaignBuilder() {
   }
 
   const handleSchedule = async () => {
+    if (!recipientEmail) {
+      toast({ variant: "destructive", title: "No Recipient", description: "Please enter a recipient email address." });
+      return;
+    }
     if(!selectedDate){
         toast({ variant: "destructive", title: "No date selected", description: "Please select a date to schedule." });
         return;
     }
-    if (!generatedEmail || !user?.email) {
+    if (!generatedEmail || !user) {
         toast({ variant: "destructive", title: "Nothing to schedule", description: "Please generate an email first." });
         return;
     }
@@ -164,14 +173,14 @@ export function EmailCampaignBuilder() {
 
     try {
         await addDoc(collection(db, 'scheduledEmails'), {
-            recipientEmail: user.email, // For this demo, we schedule a test for the user
+            recipientEmail: recipientEmail,
             subject: generatedSubject,
             content: generatedEmail.replace(/\n/g, '<br>'),
             sendAt: Timestamp.fromDate(scheduleDateTime),
             status: 'Scheduled',
             userId: user.uid,
         });
-        toast({ title: "Email Scheduled!", description: `Your campaign is scheduled for ${scheduleDateTime.toLocaleString()}.` });
+        toast({ title: "Email Scheduled!", description: `Your campaign to ${recipientEmail} is scheduled for ${scheduleDateTime.toLocaleString()}.` });
     } catch(error) {
         console.error("Scheduling error:", error);
         toast({ variant: "destructive", title: "Scheduling Failed", description: "Could not save the scheduled email." });
@@ -314,8 +323,18 @@ export function EmailCampaignBuilder() {
           </div>
           <CardDescription>Review, edit, and send the generated email.</CardDescription>
         </CardHeader>
-        <CardContent className="flex-1">
-          <div className="bg-background rounded-lg border p-4 min-h-[300px] text-sm flex flex-col gap-2">
+        <CardContent className="flex-1 flex flex-col gap-4">
+          <div>
+            <Label htmlFor="recipient-email">Recipient Email</Label>
+            <Input 
+              id="recipient-email"
+              type="email"
+              placeholder="customer@example.com"
+              value={recipientEmail}
+              onChange={(e) => setRecipientEmail(e.target.value)}
+            />
+          </div>
+          <div className="bg-background rounded-lg border p-4 text-sm flex flex-col gap-2 flex-1">
             {isGenerating && <div className="space-y-2">
                 <Skeleton className="h-8 w-3/4" />
                 <div className="pt-4 space-y-2">
@@ -347,14 +366,14 @@ export function EmailCampaignBuilder() {
           </div>
         </CardContent>
         <CardFooter className="flex-col sm:flex-row gap-2">
-            <Button onClick={handleSend} disabled={!generatedEmail || isGenerating || isSending} className="w-full">
+            <Button onClick={handleSend} disabled={!generatedEmail || isGenerating || isSending || !recipientEmail} className="w-full">
               {isSending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              Send Test
+              Send Email
             </Button>
             <Button onClick={handleCopy} variant="secondary" disabled={!generatedEmail || isGenerating} className="w-full"><Copy className="size-4 mr-2"/>Copy</Button>
              <Popover>
                 <PopoverTrigger asChild>
-                    <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !selectedDate && "text-muted-foreground")} disabled={!generatedEmail || isGenerating} >
+                    <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !selectedDate && "text-muted-foreground")} disabled={!generatedEmail || isGenerating || !recipientEmail} >
                         <CalendarIconLucide className="mr-2 h-4 w-4" />
                         {selectedDate ? `${selectedDate.toLocaleDateString()} at ${scheduleTime}` : <span>Schedule</span>}
                     </Button>
