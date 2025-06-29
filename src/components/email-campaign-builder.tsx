@@ -1,10 +1,11 @@
+
 "use client";
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { CalendarIcon, Copy, Loader2, Send, Sparkles, Upload, FileText, Calendar as CalendarIconLucide } from 'lucide-react';
+import { Copy, Loader2, Send, Sparkles, Upload, FileText, Calendar as CalendarIconLucide, Smile } from 'lucide-react';
 import { addDoc, collection, Timestamp } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/button';
@@ -24,6 +25,7 @@ import { generateEmail } from '@/ai/flows/generate-email-from-prompt';
 import { sendEmail } from '@/ai/flows/send-email';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/lib/firebase';
+import { Label } from '@/components/ui/label';
 
 const formSchema = z.object({
   template: z.string().min(1, { message: "Please select a template." }),
@@ -43,6 +45,8 @@ export function EmailCampaignBuilder() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>();
+  const [scheduleTime, setScheduleTime] = useState('09:00');
+  const emailTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   const { toast } = useToast();
 
@@ -102,9 +106,8 @@ export function EmailCampaignBuilder() {
   };
 
   const handleCopy = () => {
-    if (generatedEmail) {
-      // A neat trick to copy HTML content as rich text
-      const fullHtml = `<b>${generatedSubject}</b><br/><br/>${generatedEmail}`;
+    if (generatedEmail || generatedSubject) {
+      const fullHtml = `<b>${generatedSubject}</b><br/><br/>${generatedEmail.replace(/\n/g, '<br>')}`;
       const blob = new Blob([fullHtml], { type: 'text/html' });
       const clipboardItem = new ClipboardItem({ 'text/html': blob });
       navigator.clipboard.write([clipboardItem]);
@@ -155,21 +158,41 @@ export function EmailCampaignBuilder() {
         return;
     }
 
+    const [hours, minutes] = scheduleTime.split(':').map(Number);
+    const scheduleDateTime = new Date(selectedDate);
+    scheduleDateTime.setHours(hours, minutes, 0, 0); // set seconds and ms to 0
+
     try {
         await addDoc(collection(db, 'scheduledEmails'), {
             recipientEmail: user.email, // For this demo, we schedule a test for the user
             subject: generatedSubject,
             content: generatedEmail.replace(/\n/g, '<br>'),
-            sendAt: Timestamp.fromDate(selectedDate),
+            sendAt: Timestamp.fromDate(scheduleDateTime),
             status: 'Scheduled',
             userId: user.uid,
         });
-        toast({ title: "Email Scheduled!", description: `Your campaign is scheduled for ${selectedDate.toLocaleDateString()}.` });
+        toast({ title: "Email Scheduled!", description: `Your campaign is scheduled for ${scheduleDateTime.toLocaleString()}.` });
     } catch(error) {
         console.error("Scheduling error:", error);
         toast({ variant: "destructive", title: "Scheduling Failed", description: "Could not save the scheduled email." });
     }
   }
+  
+  const handleEmojiClick = (emoji: string) => {
+    const textarea = emailTextareaRef.current;
+    if (textarea) {
+      const start = textarea.selectionStart;
+      const end = textarea.selectionEnd;
+      const text = textarea.value;
+      const newText = text.substring(0, start) + emoji + text.substring(end);
+      setGeneratedEmail(newText);
+
+      setTimeout(() => {
+        textarea.focus();
+        textarea.selectionStart = textarea.selectionEnd = start + emoji.length;
+      }, 0);
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -274,22 +297,53 @@ export function EmailCampaignBuilder() {
       {/* Column 3: Preview */}
       <Card className="flex flex-col">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2"><Send className="size-5" /> 3. Preview & Send</CardTitle>
-          <CardDescription>Review the generated email and send it to your customers.</CardDescription>
+          <div className="flex justify-between items-center">
+            <CardTitle className="flex items-center gap-2"><Send className="size-5" /> 3. Preview & Send</CardTitle>
+             <Popover>
+                <PopoverTrigger asChild>
+                    <Button variant="ghost" size="icon"><Smile className="size-5" /></Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto">
+                    <div className="grid grid-cols-6 gap-2">
+                        {['😀', '😂', '😍', '🤔', '🔥', '🎉', '💯', '🙏', '👀', '👇', '👉', '💸'].map(emoji => (
+                            <Button key={emoji} variant="ghost" size="icon" onClick={() => handleEmojiClick(emoji)}>{emoji}</Button>
+                        ))}
+                    </div>
+                </PopoverContent>
+            </Popover>
+          </div>
+          <CardDescription>Review, edit, and send the generated email.</CardDescription>
         </CardHeader>
         <CardContent className="flex-1">
-          <div className="bg-background rounded-lg border p-4 min-h-[300px] text-sm whitespace-pre-wrap font-body">
+          <div className="bg-background rounded-lg border p-4 min-h-[300px] text-sm flex flex-col gap-2">
             {isGenerating && <div className="space-y-2">
-                <Skeleton className="h-4 w-1/4" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-3/4" />
-                <Skeleton className="h-4 w-full mt-4" />
-                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-8 w-3/4" />
+                <div className="pt-4 space-y-2">
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-3/4" />
+                  <Skeleton className="h-4 w-full mt-4" />
+                  <Skeleton className="h-4 w-1/2" />
+                </div>
              </div>}
-            {!isGenerating && !generatedEmail && <div className="text-muted-foreground flex items-center justify-center h-full">Your generated email will appear here.</div>}
-            {generatedSubject && <><p className="font-bold">{generatedSubject}</p><br/></>}
-            {generatedEmail}
+            {!isGenerating && !generatedEmail && !generatedSubject && <div className="text-muted-foreground flex items-center justify-center h-full">Your generated email will appear here.</div>}
+            {(!isGenerating && (generatedEmail || generatedSubject || form.formState.isDirty)) && (
+                <>
+                    <Input 
+                        placeholder="Email Subject"
+                        value={generatedSubject}
+                        onChange={(e) => setGeneratedSubject(e.target.value)}
+                        className="font-bold text-base border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0"
+                    />
+                    <Textarea 
+                        ref={emailTextareaRef}
+                        placeholder="Email Body..."
+                        value={generatedEmail}
+                        onChange={(e) => setGeneratedEmail(e.target.value)}
+                        className="flex-1 resize-none border-0 focus-visible:ring-0 focus-visible:ring-offset-0 p-0 font-body whitespace-pre-wrap"
+                    />
+                </>
+            )}
           </div>
         </CardContent>
         <CardFooter className="flex-col sm:flex-row gap-2">
@@ -302,12 +356,16 @@ export function EmailCampaignBuilder() {
                 <PopoverTrigger asChild>
                     <Button variant="outline" className={cn("w-full justify-start text-left font-normal", !selectedDate && "text-muted-foreground")} disabled={!generatedEmail || isGenerating} >
                         <CalendarIconLucide className="mr-2 h-4 w-4" />
-                        {selectedDate ? selectedDate.toLocaleDateString() : <span>Schedule</span>}
+                        {selectedDate ? `${selectedDate.toLocaleDateString()} at ${scheduleTime}` : <span>Schedule</span>}
                     </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-auto p-0">
                     <Calendar mode="single" selected={selectedDate} onSelect={setSelectedDate} initialFocus />
-                    <div className="p-2 border-t">
+                    <div className="p-2 border-t space-y-2">
+                         <div className="grid gap-1.5">
+                            <Label htmlFor="time">Time</Label>
+                            <Input id="time" type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} />
+                        </div>
                         <Button onClick={handleSchedule} size="sm" className="w-full">Confirm Schedule</Button>
                     </div>
                 </PopoverContent>
