@@ -1,4 +1,3 @@
-
 'use client';
 
 import React, {createContext, useContext, useState, useEffect, ReactNode} from 'react';
@@ -9,6 +8,7 @@ import {useRouter} from 'next/navigation';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
+  isLoggingIn: boolean;
   login: () => Promise<void>;
   logout: () => Promise<void>;
 }
@@ -18,23 +18,23 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider = ({children}: {children: ReactNode}) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
   const router = useRouter();
 
   const login = async () => {
-    setLoading(true); // Indicate that the login process has started
+    if (isLoggingIn) return;
+    setIsLoggingIn(true);
     try {
-      // Try to sign in with a popup first.
       await signInWithPopup(auth, googleProvider);
-      // If successful, onAuthStateChanged will handle the user state and setLoading(false).
     } catch (error: any) {
-      // If the popup is blocked by the browser or cancelled, fall back to a redirect.
       if (error.code === 'auth/popup-blocked' || error.code === 'auth/cancelled-popup-request') {
         await signInWithRedirect(auth, googleProvider);
-        // After redirect, onAuthStateChanged will handle the user state.
       } else {
         console.error('Authentication error:', error);
-        setLoading(false); // Stop loading only if there was an unexpected error.
+        throw error;
       }
+    } finally {
+      setIsLoggingIn(false);
     }
   };
 
@@ -61,7 +61,7 @@ export const AuthProvider = ({children}: {children: ReactNode}) => {
     return () => unsubscribe();
   }, []);
 
-  const value = {user, loading, login, logout};
+  const value = {user, loading, isLoggingIn, login, logout};
 
   return (
     <AuthContext.Provider value={value}>
