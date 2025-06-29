@@ -1,3 +1,5 @@
+"use client"
+
 import {
   Card,
   CardContent,
@@ -15,6 +17,8 @@ import {
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { customers } from "@/data/customers"
+import { Button } from "@/components/ui/button"
+import { Download } from "lucide-react"
 
 export default function CustomersPage() {
   const getStatusVariant = (status: 'Active' | 'Churned' | 'New'): 'default' | 'destructive' | 'secondary' => {
@@ -30,6 +34,25 @@ export default function CustomersPage() {
     }
   }
 
+  const handleDownloadCSV = () => {
+    const csvContent = [
+      Object.keys(customers[0]).join(','),
+      ...customers.map(item => Object.values(item).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.href) {
+      URL.revokeObjectURL(link.href);
+    }
+    const url = URL.createObjectURL(blob);
+    link.href = url;
+    link.setAttribute('download', 'customers.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="flex-1 space-y-8 p-4 md:p-8">
       <div className="flex items-center justify-between space-y-2">
@@ -38,6 +61,12 @@ export default function CustomersPage() {
           <p className="text-muted-foreground">
             Here's a list of your customers.
           </p>
+        </div>
+        <div className="flex items-center space-x-2">
+            <Button onClick={handleDownloadCSV}>
+                <Download className="mr-2 h-4 w-4" />
+                Download CSV
+            </Button>
         </div>
       </div>
       <Card>
