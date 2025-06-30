@@ -1,12 +1,12 @@
 
 "use client";
 
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
 import { Copy, Loader2, Send, Sparkles, Upload, FileText, Calendar as CalendarIconLucide, Smile } from 'lucide-react';
-import { addDoc, collection, Timestamp } from 'firebase/firestore';
+import { addDoc, collection, Timestamp, doc, getDoc, updateDoc } from 'firebase/firestore';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -44,7 +44,7 @@ interface CampaignEmail {
   customer: any;
 }
 
-export function EmailCampaignBuilder() {
+export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
   const { user } = useAuth();
   const [customerData, setCustomerData] = useState('');
   const [customers, setCustomers] = useState<any[]>([]);
@@ -55,6 +55,7 @@ export function EmailCampaignBuilder() {
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
   const [isSending, setIsSending] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
 
   const [selectedDate, setSelectedDate] = useState<Date>();
   const [scheduleTime, setScheduleTime] = useState('09:00');
@@ -62,6 +63,8 @@ export function EmailCampaignBuilder() {
   const [carouselApi, setCarouselApi] = React.useState<CarouselApi>()
   const [currentSlide, setCurrentSlide] = React.useState(0)
   const [slideCount, setSlideCount] = React.useState(0)
+
+  const [draftIdToUpdate, setDraftIdToUpdate] = useState<string | null>(draftId || null);
 
   const { toast } = useToast();
 
@@ -73,6 +76,49 @@ export function EmailCampaignBuilder() {
       customPrompt: "",
     },
   });
+
+  useEffect(() => {
+    const loadDraft = async (id: string) => {
+      if (!user) return;
+      try {
+        const draftDocRef = doc(db, 'campaigns', id);
+        const draftDocSnap = await getDoc(draftDocRef);
+
+        if (draftDocSnap.exists() && draftDocSnap.data().userId === user.uid) {
+          const draftData = draftDocSnap.data();
+          
+          form.reset({
+            template: draftData.template || "gen-z-promo",
+            productName: draftData.productName || "",
+            customPrompt: draftData.customPrompt || "",
+          });
+
+          if (draftData.customerData) {
+            handleManualDataChange(draftData.customerData);
+          }
+          
+          setDraftIdToUpdate(id); 
+          
+          toast({
+            title: "Draft Loaded",
+            description: "Your campaign draft has been loaded successfully.",
+          });
+
+        } else {
+            toast({ variant: "destructive", title: "Error", description: "Could not load the specified draft." });
+        }
+      } catch (error) {
+        console.error("Error loading draft:", error);
+        toast({ variant: "destructive", title: "Error", description: "Failed to load the draft campaign." });
+      }
+    };
+
+    if (draftId) {
+      loadDraft(draftId);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftId, user, form, toast]);
+
 
   React.useEffect(() => {
     if (!carouselApi) return;
@@ -105,11 +151,9 @@ export function EmailCampaignBuilder() {
       const reader = new FileReader();
       reader.onload = (e) => {
         const csvText = e.target?.result as string;
-        setCustomerData(csvText);
-        const parsedCustomers = parseCsv(csvText);
-        setCustomers(parsedCustomers);
-        if(parsedCustomers.length > 0) {
-            toast({ title: "Customers Loaded", description: `${parsedCustomers.length} customers found in your CSV.` });
+        handleManualDataChange(csvText);
+        if(parseCsv(csvText).length > 0) {
+            toast({ title: "Customers Loaded", description: `${parseCsv(csvText).length} customers found in your CSV.` });
         } else {
             toast({ variant: "destructive", title: "No Customers Found", description: "Could not parse any customer data from the CSV."})
         }
@@ -276,6 +320,49 @@ export function EmailCampaignBuilder() {
     }
   }
 
+  const handleSaveDraft = async () => {
+    if (!user) return;
+
+    const values = form.getValues();
+    if (!values.productName && !customerData) {
+        toast({ variant: "destructive", title: "Cannot Save Empty Draft", description: "Please provide a product name or some customer data." });
+        return;
+    }
+
+    setIsSavingDraft(true);
+    setGeneratedCampaign([]);
+    try {
+        const draftData = {
+            name: values.productName || 'Untitled Draft',
+            status: 'Draft' as const,
+            createdAt: Timestamp.now(),
+            userId: user.uid,
+            template: values.template,
+            productName: values.productName,
+            customPrompt: values.customPrompt,
+            customerData: customerData,
+            recipientCount: customers.length,
+            openRate: 0,
+        };
+
+        if (draftIdToUpdate) {
+            const draftDocRef = doc(db, 'campaigns', draftIdToUpdate);
+            await updateDoc(draftDocRef, draftData);
+            toast({ title: "Draft Updated", description: "Your changes have been saved." });
+        } else {
+            const docRef = await addDoc(collection(db, 'campaigns'), draftData);
+            setDraftIdToUpdate(docRef.id);
+            toast({ title: "Draft Saved", description: "Your campaign has been saved as a draft." });
+        }
+    } catch (error) {
+        console.error("Error saving draft:", error);
+        toast({ variant: "destructive", title: "Error", description: "Failed to save draft." });
+    } finally {
+        setIsSavingDraft(false);
+    }
+  };
+
+
   const handleEmailChange = (index: number, field: 'subject' | 'content', value: string) => {
     const newCampaign = [...generatedCampaign];
     newCampaign[index] = { ...newCampaign[index], [field]: value };
@@ -342,52 +429,60 @@ export function EmailCampaignBuilder() {
       </div>
 
       {/* Column 2: Composer */}
-      <Card>
+      <Card className="flex flex-col">
         <CardHeader>
           <CardTitle className="flex items-center gap-2"><Sparkles className="size-5" /> 2. Compose Campaign</CardTitle>
           <CardDescription>Select a template and provide product details for the AI.</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex-1">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-              <FormField control={form.control} name="template" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Template</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 h-full flex flex-col">
+              <div className="space-y-6 flex-1">
+                <FormField control={form.control} name="template" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Template</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger><SelectValue placeholder="Select an email template" /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="gen-z-promo">Gen-Z Promo</SelectItem>
+                        <SelectItem value="flash-sale">Flash Sale</SelectItem>
+                        <SelectItem value="friendly-reminder">Friendly Reminder</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="productName" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Product Name</FormLabel>
                     <FormControl>
-                      <SelectTrigger><SelectValue placeholder="Select an email template" /></SelectTrigger>
+                      <Input placeholder="e.g. Super-Duper Coffee Beans" {...field} />
                     </FormControl>
-                    <SelectContent>
-                      <SelectItem value="gen-z-promo">Gen-Z Promo</SelectItem>
-                      <SelectItem value="flash-sale">Flash Sale</SelectItem>
-                      <SelectItem value="friendly-reminder">Friendly Reminder</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="productName" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Product Name</FormLabel>
-                  <FormControl>
-                    <Input placeholder="e.g. Super-Duper Coffee Beans" {...field} />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="customPrompt" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Additional Details (Optional)</FormLabel>
-                  <FormControl>
-                    <Textarea placeholder="e.g. Mention our new loyalty program..." {...field} rows={4} className="font-code" />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <Button type="submit" disabled={isGenerating || customers.length === 0} className="w-full">
-                {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                Generate Campaign
-              </Button>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="customPrompt" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Additional Details (Optional)</FormLabel>
+                    <FormControl>
+                      <Textarea placeholder="e.g. Mention our new loyalty program..." {...field} rows={4} className="font-code" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              </div>
+              <div className="flex flex-col sm:flex-row gap-2">
+                <Button type="submit" disabled={isGenerating || customers.length === 0} className="w-full">
+                  {isGenerating && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Generate Campaign
+                </Button>
+                <Button variant="outline" type="button" onClick={handleSaveDraft} disabled={isGenerating || isSavingDraft} className="w-full">
+                  {isSavingDraft && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {draftIdToUpdate ? 'Update Draft' : 'Save as Draft'}
+                </Button>
+              </div>
             </form>
           </Form>
         </CardContent>

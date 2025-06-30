@@ -2,6 +2,7 @@
 "use client"
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Card,
   CardContent,
@@ -33,7 +34,11 @@ interface Campaign {
   createdAt: Date;
   recipientCount: number;
   openRate: number;
-  userId?: string; // Add userId to the interface
+  userId?: string;
+  template?: string;
+  productName?: string;
+  customPrompt?: string;
+  customerData?: string;
 }
 
 
@@ -42,6 +47,7 @@ export default function CampaignsPage() {
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
   const { toast } = useToast();
+  const router = useRouter();
 
   useEffect(() => {
     const fetchCampaigns = async () => {
@@ -67,6 +73,10 @@ export default function CampaignsPage() {
             recipientCount: data.recipientCount,
             openRate: data.openRate,
             userId: data.userId,
+            template: data.template,
+            productName: data.productName,
+            customPrompt: data.customPrompt,
+            customerData: data.customerData,
           } as Campaign;
         });
 
@@ -148,7 +158,15 @@ export default function CampaignsPage() {
                   </TableRow>
                 ) : (
                   campaigns.map((campaign) => (
-                    <TableRow key={campaign.id}>
+                    <TableRow 
+                      key={campaign.id}
+                      onClick={() => {
+                        if (campaign.status === 'Draft') {
+                          router.push(`/dashboard?draftId=${campaign.id}`);
+                        }
+                      }}
+                      className={campaign.status === 'Draft' ? 'cursor-pointer' : ''}
+                    >
                       <TableCell className="font-medium">{campaign.name}</TableCell>
                       <TableCell>
                         <Badge variant={getStatusVariant(campaign.status)}>{campaign.status}</Badge>
