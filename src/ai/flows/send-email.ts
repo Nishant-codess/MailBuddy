@@ -38,8 +38,8 @@ const sendEmailFlow = ai.defineFlow(
   async ({ recipientEmail, subject, htmlContent }) => {
     const { SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS } = process.env;
 
-    if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
-      const errorMessage = 'SMTP configuration is missing in .env file.';
+    if (!SMTP_HOST || SMTP_HOST.includes('YOUR_') || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) {
+      const errorMessage = 'SMTP configuration is incomplete or contains placeholder values. Please check your .env file and restart the server.';
       console.error(errorMessage);
       return { success: false, message: errorMessage };
     }
