@@ -32,6 +32,7 @@ interface Campaign {
   createdAt: Date;
   recipientCount: number;
   openRate: number;
+  userId?: string; // Add userId to the interface
 }
 
 
@@ -48,14 +49,10 @@ export default function CampaignsPage() {
       }
       try {
         setLoading(true);
-        const campaignsCollectionRef = collection(db, 'campaigns');
-        const q = query(
-          campaignsCollectionRef, 
-          where('userId', '==', user.uid)
-        );
-        const querySnapshot = await getDocs(q);
+        // Fetch all campaigns and filter on the client to avoid indexing issues
+        const querySnapshot = await getDocs(collection(db, 'campaigns'));
 
-        const campaignsData = querySnapshot.docs.map(doc => {
+        const allCampaigns = querySnapshot.docs.map(doc => {
           const data = doc.data();
           return {
             id: doc.id,
@@ -63,14 +60,18 @@ export default function CampaignsPage() {
             status: data.status,
             createdAt: (data.createdAt as Timestamp).toDate(),
             recipientCount: data.recipientCount,
-            openRate: data.openRate
+            openRate: data.openRate,
+            userId: data.userId,
           } as Campaign;
         });
 
-        // Sort campaigns by creation date on the client-side to avoid needing a composite index
-        campaignsData.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+        // Filter campaigns for the current user
+        const userCampaigns = allCampaigns.filter(campaign => campaign.userId === user.uid);
+        
+        // Sort campaigns by creation date
+        userCampaigns.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-        setCampaigns(campaignsData);
+        setCampaigns(userCampaigns);
 
       } catch (error) {
         // This might happen if the 'campaigns' collection doesn't exist yet
