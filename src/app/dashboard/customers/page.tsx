@@ -164,35 +164,18 @@ export default function CustomersPage() {
           }
 
           setLoading(true);
+
+          // Create a map of existing customers by email for quick lookup.
+          // This uses the 'customers' state which is already fetched on page load.
+          const existingCustomersMap = new Map(customers.map(c => [c.email, c.id]));
           
           const customersCollectionRef = collection(db, 'customers');
           const batch = writeBatch(db);
           let upsertCount = { updated: 0, created: 0 };
           
-          // Firestore 'in' queries are limited to 30 values. We'll query in chunks.
-          const customerEmails = newCustomersFromCsv.map(c => c.email);
-          const existingCustomersMap = new Map<string, string>(); // Map email to doc ID
-
-          const queryPromises = [];
-          for (let i = 0; i < customerEmails.length; i += 30) {
-              const emailChunk = customerEmails.slice(i, i + 30);
-              if (emailChunk.length > 0) {
-                const q = query(customersCollectionRef, where('userId', '==', user.uid), where('email', 'in', emailChunk));
-                queryPromises.push(getDocs(q));
-              }
-          }
-          
-          const querySnapshots = await Promise.all(queryPromises);
-          querySnapshots.forEach(snapshot => {
-              snapshot.forEach(doc => {
-                  existingCustomersMap.set(doc.data().email, doc.id);
-              });
-          });
-
           for (const customer of newCustomersFromCsv) {
-            const existingDocId = existingCustomersMap.get(customer.email);
-            // This is the crucial part: ensuring userId is always included.
             const dataWithUser = { ...customer, userId: user.uid };
+            const existingDocId = existingCustomersMap.get(customer.email);
 
             if (existingDocId) {
               // Update existing customer
