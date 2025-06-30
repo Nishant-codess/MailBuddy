@@ -4,6 +4,7 @@ export type Customer = {
   email: string;
   status: 'Active' | 'Churned' | 'New';
   totalSpent: number;
+  userId?: string;
 };
 
 export const customers: Customer[] = [

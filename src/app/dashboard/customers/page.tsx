@@ -25,7 +25,7 @@ import { Upload, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, where, writeBatch, doc } from 'firebase/firestore';
+import { collection, getDocs, writeBatch, doc } from 'firebase/firestore';
 
 
 export default function CustomersPage() {
@@ -43,9 +43,12 @@ export default function CustomersPage() {
     try {
       setLoading(true);
       const customersCollection = collection(db, 'customers');
-      const q = query(customersCollection, where('userId', '==', user.uid));
-      const querySnapshot = await getDocs(q);
-      const customersData = querySnapshot.docs.map(doc => {
+      // Fetch all customers and filter client-side.
+      // This is a workaround for potential Firestore indexing issues.
+      // NOTE: This can be inefficient for very large customer lists and requires
+      // broader read permissions in your Firestore security rules.
+      const querySnapshot = await getDocs(customersCollection);
+      const allCustomers = querySnapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
@@ -53,15 +56,17 @@ export default function CustomersPage() {
           email: data.email,
           status: data.status,
           totalSpent: data.totalSpent,
+          userId: data.userId, // Keep userId for filtering
         } as Customer;
       });
-      setCustomers(customersData);
+      const userCustomers = allCustomers.filter(c => c.userId === user.uid);
+      setCustomers(userCustomers);
     } catch (error) {
       console.error("Error fetching customers:", error);
       toast({
         variant: "destructive",
         title: "Error fetching customers",
-        description: "Could not load customer data. This may be due to a missing Firestore index on 'userId'. Check the browser console for a link to create it.",
+        description: "Could not load customer data. Please check your Firestore security rules or internet connection.",
       });
     } finally {
       setLoading(false);
