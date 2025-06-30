@@ -103,29 +103,35 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await signInWithEmailAndPassword(auth, email, password);
       // onAuthStateChanged will handle redirect and state updates
     } catch (error: any) {
-      // For the common case of wrong credentials, we just show a toast
-      // and don't log a console error, which prevents the Next.js error overlay.
-      if (error?.code === 'auth/invalid-credential') {
-        toast({
-          variant: 'destructive',
-          title: 'Login Failed',
-          description: 'Invalid credentials. Please check your email and password.',
-        });
-        setIsAuthenticating(false);
-        return; // Exit the function early
-      }
+      let title = "Login Failed";
+      let description = "An unexpected error occurred. Please try again later.";
 
-      // For all other errors, we log them for debugging and show a user-friendly message.
-      console.error("Login failed:", error);
-      let description = "An unexpected error occurred. Please try again.";
-
-      if (error?.code === 'auth/user-disabled') {
-        description = "This account has been disabled.";
-      } else if (error?.code === 'auth/too-many-requests') {
-        description = "Access to this account has been temporarily disabled due to many failed login attempts. You can reset your password or try again later.";
+      switch (error.code) {
+        case 'auth/invalid-api-key':
+        case 'auth/api-key-not-valid':
+          title = "Configuration Error";
+          description = "Your Firebase API Key is invalid. Please check the NEXT_PUBLIC_FIREBASE_API_KEY value in your .env file.";
+          break;
+        case 'auth/invalid-credential':
+          description = 'Invalid credentials. Please check your email and password.';
+          break;
+        case 'auth/user-disabled':
+          description = "This account has been disabled.";
+          break;
+        case 'auth/too-many-requests':
+          description = "Access to this account has been temporarily disabled due to many failed login attempts. You can reset your password or try again later.";
+          break;
+        default:
+          console.error("Login failed:", error);
+          description = error.message || description;
+          break;
       }
       
-      toast({ variant: "destructive", title: "Login Failed", description });
+      toast({ 
+        variant: "destructive", 
+        title: title,
+        description: description,
+      });
       setIsAuthenticating(false);
     }
   };
@@ -141,8 +147,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
       // onAuthStateChanged will also run and handle firestore doc creation
     } catch (error: any) {
-      console.error("Signup failed:", error);
-      toast({ variant: "destructive", title: "Signup Failed", description: error.message });
+      let title = "Signup Failed";
+      let description = "An unexpected error occurred. Please try again later.";
+      
+      switch (error.code) {
+        case 'auth/invalid-api-key':
+        case 'auth/api-key-not-valid':
+          title = "Configuration Error";
+          description = "Your Firebase API Key is invalid. Please check the values in your .env file.";
+          break;
+        case 'auth/email-already-in-use':
+          description = "This email address is already in use by another account.";
+          break;
+        case 'auth/weak-password':
+          description = "The password is too weak. It must be at least 6 characters long.";
+          break;
+        default:
+          console.error("Signup failed:", error);
+          description = error.message || description;
+          break;
+      }
+
+      toast({ 
+        variant: "destructive", 
+        title: title, 
+        description: description
+      });
       setIsAuthenticating(false);
     }
   };
