@@ -350,7 +350,7 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
 
     const results = await Promise.all(sendPromises);
     const successfulSends = results.filter(r => r.status === 'fulfilled').length;
-    const failedSends = results.filter(r => r.status === 'rejected');
+    const failedSends = results.filter(r => r.status === 'rejected') as { status: 'rejected', reason: string, recipient: string }[];
     
     await updateDoc(campaignRef, { status: 'Sent' });
 
@@ -359,7 +359,16 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
     }
     
     if (failedSends.length > 0) {
-      toast({ variant: "destructive", title: "Sending Failed", description: `${failedSends.length} emails could not be sent.` });
+      const firstFailureReason = failedSends[0].reason;
+      let description = `${failedSends.length} emails could not be sent. Check console for details.`;
+
+      if (firstFailureReason && firstFailureReason.includes('SMTP configuration is missing')) {
+          description = "Your email sending service (SMTP) is not configured. Please add your credentials to the .env file.";
+      } else if (firstFailureReason) {
+        description = `Sending failed. Reason: ${firstFailureReason}`;
+      }
+        
+      toast({ variant: "destructive", title: "Sending Failed", description });
       console.error("Failed sends:", failedSends);
     }
 

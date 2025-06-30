@@ -1,3 +1,4 @@
+
 'use server';
 
 /**
@@ -54,7 +55,7 @@ const sendEmailFlow = ai.defineFlow(
     });
 
     const mailOptions = {
-      from: `"MailBuddy" <${SMTP_USER}>`,
+      from: `"MailGenius" <${SMTP_USER}>`,
       to: recipientEmail,
       subject: subject,
       html: htmlContent,
