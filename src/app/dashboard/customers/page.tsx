@@ -1,7 +1,7 @@
 
 "use client"
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Card,
   CardContent,
@@ -18,16 +18,62 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
-import { customers as initialCustomers, Customer } from "@/data/customers"
+import { type Customer } from "@/data/customers"
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Upload } from 'lucide-react';
+import { Upload, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/context/AuthContext';
+import { db } from '@/lib/firebase';
+import { collection, getDocs, query, where, writeBatch, doc } from 'firebase/firestore';
+
 
 export default function CustomersPage() {
-  const [customers, setCustomers] = useState<Customer[]>(initialCustomers);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const fetchCustomers = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        const customersCollection = collection(db, 'customers');
+        const q = query(customersCollection, where('userId', '==', user.uid));
+        const querySnapshot = await getDocs(q);
+        const customersData = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            name: data.name,
+            email: data.email,
+            status: data.status,
+            totalSpent: data.totalSpent,
+          } as Customer;
+        });
+        setCustomers(customersData);
+      } catch (error) {
+        console.error("Error fetching customers:", error);
+        toast({
+          variant: "destructive",
+          title: "Error fetching customers",
+          description: "Could not load customer data from the database.",
+        });
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (user) {
+      fetchCustomers();
+    }
+  }, [user, toast]);
+
 
   const getStatusVariant = (status: 'Active' | 'Churned' | 'New'): 'default' | 'destructive' | 'secondary' => {
     switch (status) {
@@ -82,26 +128,53 @@ export default function CustomersPage() {
     return data;
   }
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) {
+    if (file && user) {
       const reader = new FileReader();
-      reader.onload = (e) => {
+      reader.onload = async (e) => {
         try {
           const csvText = e.target?.result as string;
-          const parsedCustomers = parseCsvToCustomers(csvText);
+          const newCustomers = parseCsvToCustomers(csvText);
           
-          if (parsedCustomers.length > 0) {
-            setCustomers(parsedCustomers);
-            toast({ title: "Customers Updated", description: `${parsedCustomers.length} customers were loaded from your CSV.` });
-          } else if (parsedCustomers.length === 0 && csvText.length > 0) {
-            // This case handles when parsing returns empty, possibly due to header error toast already shown.
-            // Or if the content is invalid.
-            toast({ variant: "destructive", title: "No Customers Found", description: "Could not parse valid customer data from the CSV." });
+          if (newCustomers.length === 0) {
+            if(csvText.length > 0) {
+              toast({ variant: "destructive", title: "No Customers Found", description: "Could not parse valid customer data from the CSV." });
+            }
+            return;
           }
+
+          setLoading(true);
+
+          const batch = writeBatch(db);
+          const customersCollectionRef = collection(db, 'customers');
+
+          // Replace strategy: delete old customers, add new ones.
+          const q = query(customersCollectionRef, where('userId', '==', user.uid));
+          const existingCustomersSnapshot = await getDocs(q);
+          existingCustomersSnapshot.forEach(doc => {
+            batch.delete(doc.ref);
+          });
+          
+          newCustomers.forEach(customer => {
+            const { id, ...customerData } = customer; // Firestore generates its own ID, so we discard the temporary one.
+            const newCustomerRef = doc(customersCollectionRef);
+            batch.set(newCustomerRef, { ...customerData, userId: user.uid });
+          });
+          
+          await batch.commit();
+          
+          setCustomers(newCustomers);
+          toast({ title: "Customers Updated", description: `${newCustomers.length} customers were imported successfully.` });
         } catch (error) {
-            console.error("Failed to parse CSV:", error);
-            toast({ variant: "destructive", title: "CSV Parsing Error", description: "The file could not be read or processed." });
+            console.error("Failed to process CSV and update Firestore:", error);
+            toast({ variant: "destructive", title: "Update Error", description: "Could not update the customer list in the database." });
+        } finally {
+            setLoading(false);
+            // Reset file input so user can upload the same file again
+            if (fileInputRef.current) {
+                fileInputRef.current.value = "";
+            }
         }
       };
       reader.onerror = () => {
@@ -128,7 +201,7 @@ export default function CustomersPage() {
             className="hidden"
             accept=".csv, text/csv"
           />
-          <Button onClick={handleUploadClick}>
+          <Button onClick={handleUploadClick} disabled={loading}>
             <Upload className="mr-2 h-4 w-4" />
             Upload Customer Billing history/Details
           </Button>
@@ -140,30 +213,44 @@ export default function CustomersPage() {
           <CardDescription>An overview of all your customers.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Total Spent</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {customers.map((customer) => (
-                <TableRow key={customer.id}>
-                  <TableCell className="font-medium">{customer.name}</TableCell>
-                  <TableCell>{customer.email}</TableCell>
-                  <TableCell>
-                    <Badge variant={getStatusVariant(customer.status)}>{customer.status}</Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    ${customer.totalSpent.toFixed(2)}
-                  </TableCell>
+          {loading ? (
+             <div className="flex justify-center items-center h-48">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Total Spent</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {customers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center h-24">
+                      No customers found. Upload a CSV to get started.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  customers.map((customer) => (
+                    <TableRow key={customer.id}>
+                      <TableCell className="font-medium">{customer.name}</TableCell>
+                      <TableCell>{customer.email}</TableCell>
+                      <TableCell>
+                        <Badge variant={getStatusVariant(customer.status)}>{customer.status}</Badge>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        ${customer.totalSpent.toFixed(2)}
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>
