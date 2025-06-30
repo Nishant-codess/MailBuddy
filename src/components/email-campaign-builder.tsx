@@ -49,7 +49,7 @@ const parseCustomerData = (text: string): any[] => {
     if (lines.length === 0) return [];
 
     // Heuristic 1: Key-Value pairs (for single customer manual entry)
-    if (lines.some(l => l.includes(':'))) {
+    if (lines.some(l => l.includes(':')) && !lines[0].includes(',')) {
         const customer: {[key: string]: string} = {};
         let lastKey = '';
         lines.forEach(line => {
@@ -96,13 +96,20 @@ const parseCustomerData = (text: string): any[] => {
     }
 
     const data = dataLines.map(line => {
-        const values = line.split(',');
+        const values = line.split(',').map(v => v.trim());
         const entry: {[key: string]: string} = {};
         headers.forEach((header, index) => {
+            const cleanHeader = header.replace(/\s+/g, '');
             if (values[index]) {
-                entry[header] = values[index].trim();
+                entry[cleanHeader] = values[index].trim();
             }
         });
+        // Ensure there is an email property
+        const emailKey = Object.keys(entry).find(k => k.includes('email'));
+        if(emailKey) {
+            entry.email = entry[emailKey];
+        }
+
         return entry;
     });
 
@@ -111,6 +118,7 @@ const parseCustomerData = (text: string): any[] => {
 
 export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
   const { user } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [customerData, setCustomerData] = useState('');
   const [customers, setCustomers] = useState<any[]>([]);
   const [dataSummary, setDataSummary] = useState('');
@@ -141,6 +149,24 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
       customPrompt: "",
     },
   });
+
+  const resetCampaignState = () => {
+    form.reset({
+      template: "gen-z-promo",
+      productName: "",
+      customPrompt: "",
+    });
+    setCustomerData('');
+    setCustomers([]);
+    setDataSummary('');
+    setGeneratedCampaign([]);
+    setSelectedDate(undefined);
+    setScheduleTime('09:00');
+    setDraftIdToUpdate(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
+  };
 
   useEffect(() => {
     const loadDraft = async (id: string) => {
@@ -323,6 +349,9 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
     if (failedSends.length > 0) {
       toast({ variant: "destructive", title: "Sending Failed", description: `${failedSends.length} emails could not be sent. Check console for details.` });
       console.error("Failed sends:", failedSends);
+    } else if (successfulSends > 0) {
+      // Only reset if all sends were successful
+      resetCampaignState();
     }
 
     setIsSending(false);
@@ -366,6 +395,7 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
       });
 
       toast({ title: "Campaign Scheduled!", description: `${generatedCampaign.length} emails scheduled for ${scheduleDateTime.toLocaleString()}.` });
+      resetCampaignState();
     } catch(error) {
         console.error("Scheduling error:", error);
         toast({ variant: "destructive", title: "Scheduling Failed", description: "Could not save the scheduled campaign." });
@@ -438,7 +468,7 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2"><FileText className="size-5" /> 1. Add Customer Data</CardTitle>
-            <CardDescription>Upload a CSV with customer emails and data to personalize your campaign.</CardDescription>
+            <CardDescription>Upload a CSV or paste customer details to personalize your campaign.</CardDescription>
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="manual">
@@ -447,7 +477,7 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
                 <TabsTrigger value="manual">Manual Entry</TabsTrigger>
               </TabsList>
               <TabsContent value="csv" className="mt-4">
-                <Input type="file" accept=".csv, text/csv" onChange={handleFileChange} />
+                <Input type="file" accept=".csv, text/csv" onChange={handleFileChange} ref={fileInputRef} />
               </TabsContent>
               <TabsContent value="manual" className="mt-4">
                 <Textarea placeholder="Paste CSV data or customer details here..." value={customerData} onChange={(e) => handleManualDataChange(e.target.value)} rows={8} />
@@ -626,5 +656,3 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
     </div>
   );
 }
-
-    
