@@ -208,7 +208,22 @@ export function EmailCampaignBuilder() {
     
     if (successfulSends > 0) {
       toast({ title: "Campaign Sent!", description: `${successfulSends} emails sent successfully.` });
+       // Create a single campaign record in Firestore for history
+      try {
+        await addDoc(collection(db, 'campaigns'), {
+          name: generatedCampaign[0].subject,
+          status: 'Sent',
+          createdAt: Timestamp.now(),
+          recipientCount: successfulSends,
+          openRate: 0, // Placeholder for open rate tracking
+          userId: user.uid,
+        });
+      } catch (error) {
+        console.error("Error creating campaign record:", error);
+        // Silently fail, as the core function (sending email) succeeded.
+      }
     }
+
     if (failedSends.length > 0) {
       toast({ variant: "destructive", title: "Sending Failed", description: `${failedSends.length} emails could not be sent. Check console for details.` });
       console.error("Failed sends:", failedSends);
@@ -243,6 +258,16 @@ export function EmailCampaignBuilder() {
         });
       });
       await Promise.all(schedulePromises);
+
+      // Create a single campaign record in Firestore for history
+      await addDoc(collection(db, 'campaigns'), {
+        name: generatedCampaign[0].subject,
+        status: 'Scheduled',
+        createdAt: Timestamp.fromDate(scheduleDateTime),
+        recipientCount: generatedCampaign.length,
+        openRate: 0, // Placeholder
+        userId: user.uid,
+      });
 
       toast({ title: "Campaign Scheduled!", description: `${generatedCampaign.length} emails scheduled for ${scheduleDateTime.toLocaleString()}.` });
     } catch(error) {
@@ -454,6 +479,3 @@ export function EmailCampaignBuilder() {
     </div>
   );
 }
-
-
-    

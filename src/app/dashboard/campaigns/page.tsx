@@ -1,3 +1,7 @@
+
+"use client"
+
+import { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -14,41 +18,72 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
+import { useAuth } from "@/context/AuthContext";
+import { db } from "@/lib/firebase";
+import { collection, query, where, getDocs, Timestamp } from "firebase/firestore";
+import { format } from "date-fns";
+import { Loader2 } from "lucide-react";
 
-const campaigns = [
-  {
-    name: "Summer Sale Kickoff",
-    status: "Sent",
-    sentDate: "2023-06-15",
-    openRate: "28.5%",
-  },
-  {
-    name: "New Arrivals: Gen-Z Edition",
-    status: "Sent",
-    sentDate: "2023-07-01",
-    openRate: "35.2%",
-  },
-  {
-    name: "Back to School Special",
-    status: "Draft",
-    sentDate: "-",
-    openRate: "-",
-  },
-  {
-    name: "Holiday Gift Guide",
-    status: "Scheduled",
-    sentDate: "2023-11-20",
-    openRate: "-",
-  },
-  {
-    name: "Weekly Newsletter #42",
-    status: "Sent",
-    sentDate: "2023-07-12",
-    openRate: "22.1%",
-  },
-];
+// Define the Campaign type based on Firestore document
+interface Campaign {
+  id: string;
+  name: string;
+  status: 'Sent' | 'Draft' | 'Scheduled';
+  createdAt: Date;
+  recipientCount: number;
+  openRate: number;
+}
+
 
 export default function CampaignsPage() {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [loading, setLoading] = useState(true);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    const fetchCampaigns = async () => {
+      if (!user) {
+        setLoading(false);
+        return;
+      }
+      try {
+        setLoading(true);
+        const campaignsCollectionRef = collection(db, 'campaigns');
+        const q = query(
+          campaignsCollectionRef, 
+          where('userId', '==', user.uid)
+        );
+        const querySnapshot = await getDocs(q);
+
+        const campaignsData = querySnapshot.docs.map(doc => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            name: data.name,
+            status: data.status,
+            createdAt: (data.createdAt as Timestamp).toDate(),
+            recipientCount: data.recipientCount,
+            openRate: data.openRate
+          } as Campaign;
+        });
+
+        // Sort campaigns by creation date on the client-side to avoid needing a composite index
+        campaignsData.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+        setCampaigns(campaignsData);
+
+      } catch (error) {
+        // This might happen if the 'campaigns' collection doesn't exist yet
+        // or if security rules are not set up. We'll log it and show an empty list.
+        console.error("Error fetching campaigns:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCampaigns();
+  }, [user]);
+
   const getStatusVariant = (status: 'Sent' | 'Draft' | 'Scheduled'): 'default' | 'secondary' | 'outline' => {
     switch (status) {
       case 'Sent':
@@ -78,28 +113,42 @@ export default function CampaignsPage() {
           <CardDescription>An overview of all your past and present campaigns.</CardDescription>
         </CardHeader>
         <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Campaign Name</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Sent Date</TableHead>
-                <TableHead className="text-right">Open Rate</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {campaigns.map((campaign) => (
-                <TableRow key={campaign.name}>
-                  <TableCell className="font-medium">{campaign.name}</TableCell>
-                  <TableCell>
-                    <Badge variant={getStatusVariant(campaign.status as any)}>{campaign.status}</Badge>
-                  </TableCell>
-                  <TableCell>{campaign.sentDate}</TableCell>
-                  <TableCell className="text-right">{campaign.openRate}</TableCell>
+          {loading ? (
+             <div className="flex justify-center items-center h-48">
+              <Loader2 className="h-8 w-8 animate-spin" />
+            </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Campaign Name</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Date</TableHead>
+                  <TableHead className="text-right">Open Rate</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {campaigns.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center h-24">
+                      No campaigns found. Create one from the dashboard to get started.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  campaigns.map((campaign) => (
+                    <TableRow key={campaign.id}>
+                      <TableCell className="font-medium">{campaign.name}</TableCell>
+                      <TableCell>
+                        <Badge variant={getStatusVariant(campaign.status)}>{campaign.status}</Badge>
+                      </TableCell>
+                      <TableCell>{format(campaign.createdAt, 'PP')}</TableCell>
+                      <TableCell className="text-right">{campaign.openRate}%</TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
     </div>
