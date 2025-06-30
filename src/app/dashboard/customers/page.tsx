@@ -154,11 +154,11 @@ export default function CustomersPage() {
       reader.onload = async (e) => {
         try {
           const csvText = e.target?.result as string;
-          const newCustomers = parseCsvToCustomers(csvText);
+          const newCustomersFromCsv = parseCsvToCustomers(csvText);
           
-          if (newCustomers.length === 0) {
+          if (newCustomersFromCsv.length === 0) {
             if(csvText.length > 0) {
-               // Toast is already shown in parseCsvToCustomers
+              // Toast is shown in parseCsvToCustomers if headers are invalid
             }
             return;
           }
@@ -168,20 +168,41 @@ export default function CustomersPage() {
           const customersCollectionRef = collection(db, 'customers');
           const batch = writeBatch(db);
           let upsertCount = { updated: 0, created: 0 };
+          
+          // Firestore 'in' queries are limited to 30 values. We'll query in chunks.
+          const customerEmails = newCustomersFromCsv.map(c => c.email);
+          const existingCustomersMap = new Map<string, string>(); // Map email to doc ID
 
-          for (const customer of newCustomers) {
-            const q = query(customersCollectionRef, where('userId', '==', user.uid), where('email', '==', customer.email));
-            const existingCustomerSnapshot = await getDocs(q);
+          const queryPromises = [];
+          for (let i = 0; i < customerEmails.length; i += 30) {
+              const emailChunk = customerEmails.slice(i, i + 30);
+              if (emailChunk.length > 0) {
+                const q = query(customersCollectionRef, where('userId', '==', user.uid), where('email', 'in', emailChunk));
+                queryPromises.push(getDocs(q));
+              }
+          }
+          
+          const querySnapshots = await Promise.all(queryPromises);
+          querySnapshots.forEach(snapshot => {
+              snapshot.forEach(doc => {
+                  existingCustomersMap.set(doc.data().email, doc.id);
+              });
+          });
 
-            if (!existingCustomerSnapshot.empty) {
+          for (const customer of newCustomersFromCsv) {
+            const existingDocId = existingCustomersMap.get(customer.email);
+            // This is the crucial part: ensuring userId is always included.
+            const dataWithUser = { ...customer, userId: user.uid };
+
+            if (existingDocId) {
               // Update existing customer
-              const customerDocRef = existingCustomerSnapshot.docs[0].ref;
-              batch.update(customerDocRef, customer);
+              const customerDocRef = doc(db, 'customers', existingDocId);
+              batch.update(customerDocRef, dataWithUser);
               upsertCount.updated++;
             } else {
               // Create new customer
               const newCustomerRef = doc(customersCollectionRef);
-              batch.set(newCustomerRef, { ...customer, userId: user.uid });
+              batch.set(newCustomerRef, dataWithUser);
               upsertCount.created++;
             }
           }
