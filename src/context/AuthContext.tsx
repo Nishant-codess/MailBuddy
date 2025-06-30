@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
@@ -9,7 +10,7 @@ import {
   signOut,
   User,
 } from 'firebase/auth';
-import { doc, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, getDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 import { auth, db } from '@/lib/firebase';
 import { useRouter, usePathname } from 'next/navigation';
 import { useToast } from '@/hooks/use-toast';
@@ -103,7 +104,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // onAuthStateChanged will handle redirect and state updates
     } catch (error: any) {
       console.error("Login failed:", error);
-      toast({ variant: "destructive", title: "Login Failed", description: "Please check your email and password." });
+      let description = "An unexpected error occurred.";
+      switch (error.code) {
+        case 'auth/invalid-credential':
+          description = "Invalid credentials. Please check your email and password.";
+          break;
+        case 'auth/user-disabled':
+          description = "This account has been disabled.";
+          break;
+        case 'auth/too-many-requests':
+          description = "Access to this account has been temporarily disabled due to many failed login attempts. Please try again later.";
+          break;
+        default:
+          description = "Login failed. Please try again.";
+      }
+      toast({ variant: "destructive", title: "Login Failed", description });
       setIsAuthenticating(false);
     }
   };
