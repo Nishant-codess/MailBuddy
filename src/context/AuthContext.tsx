@@ -110,7 +110,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         case 'auth/invalid-api-key':
         case 'auth/api-key-not-valid':
           title = "Configuration Error";
-          description = "Your Firebase API Key is invalid. Please check the NEXT_PUBLIC_FIREBASE_API_KEY value in your .env file.";
+          description = "Your Firebase API Key is invalid. Please open the .env file and paste your credentials from the Firebase console.";
           break;
         case 'auth/invalid-credential':
           description = 'Invalid credentials. Please check your email and password.';
@@ -154,7 +154,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         case 'auth/invalid-api-key':
         case 'auth/api-key-not-valid':
           title = "Configuration Error";
-          description = "Your Firebase API Key is invalid. Please check the values in your .env file.";
+          description = "Your Firebase API Key is invalid. Please open the .env file and paste your credentials from the Firebase console.";
           break;
         case 'auth/email-already-in-use':
           description = "This email address is already in use by another account.";
