@@ -47,11 +47,9 @@ interface CampaignEmail {
 const parseCustomerData = (text: string): any[] => {
     const lines = text.trim().split(/\r?\n/).filter(line => line.trim() !== '');
     if (lines.length === 0) return [];
-    
-    // Heuristic: If it looks like a single key:value entry, parse it that way.
-    const isLikelySingleEntry = lines[0].includes(':') || !lines[0].includes(',');
 
-    if (isLikelySingleEntry && lines.some(l => l.includes(':'))) {
+    // Heuristic 1: Key-Value pairs (for single customer manual entry)
+    if (lines.some(l => l.includes(':'))) {
         const customer: {[key: string]: string} = {};
         let lastKey = '';
         lines.forEach(line => {
@@ -62,28 +60,41 @@ const parseCustomerData = (text: string): any[] => {
                 customer[key] = value;
                 lastKey = key;
             } else if (lastKey) {
-                // Append to the last key if a line has no colon
+                // Append to the last key if a line has no colon (for multi-line values)
                 customer[lastKey] += '\n' + line.trim();
             }
         });
 
-        // Normalize email key to ensure it exists for sending.
-        const normalizedCustomer: any = {...customer};
-        for (const key in customer) {
-            if (key.toLowerCase().replace(/\s+/g, '').includes('email')) {
-                normalizedCustomer.email = customer[key];
-                break;
-            }
+        const emailKey = Object.keys(customer).find(k => k.toLowerCase().replace(/\s+/g, '').includes('email'));
+        if (emailKey && customer[emailKey]) {
+            customer.email = customer[emailKey];
+            return [customer];
         }
-        return normalizedCustomer.email ? [normalizedCustomer] : [];
+        return []; // Return empty if no email found
     }
-    
-    // Fallback to CSV parsing. Handle case with or without header.
-    const isHeaderPresent = lines.length > 1 && !lines[0].includes('@');
-    const headerLine = isHeaderPresent ? lines[0] : 'name,email';
-    const dataLines = isHeaderPresent ? lines.slice(1) : lines;
 
-    const headers = headerLine.split(',').map(h => h.trim().toLowerCase());
+    // Heuristic 2: CSV-like data
+    const headerLine = lines[0].toLowerCase();
+    const hasHeader = ['name', 'email', 'customer', 'spent'].some(h => headerLine.includes(h));
+    
+    let headers: string[];
+    let dataLines: string[];
+
+    if (hasHeader) {
+        headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, ''));
+        dataLines = lines.slice(1);
+    } else {
+        const firstLineCols = lines[0].split(',').length;
+        if (firstLineCols === 1 && lines[0].includes('@')) {
+            headers = ['email'];
+        } else if (firstLineCols === 2) {
+            headers = ['name', 'email'];
+        } else {
+            headers = ['name', 'email', 'status', 'totalspent']; 
+        }
+        dataLines = lines;
+    }
+
     const data = dataLines.map(line => {
         const values = line.split(',');
         const entry: {[key: string]: string} = {};
@@ -95,9 +106,8 @@ const parseCustomerData = (text: string): any[] => {
         return entry;
     });
 
-    // Filter for entries that have a valid-looking email
     return data.filter(customer => customer.email && customer.email.includes('@'));
-  }
+}
 
 export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
   const { user } = useAuth();
@@ -616,3 +626,5 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
     </div>
   );
 }
+
+    
