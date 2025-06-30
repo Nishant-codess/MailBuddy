@@ -84,16 +84,23 @@ const parseCustomerData = (text: string): any[] => {
         headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, ''));
         dataLines = lines.slice(1);
     } else {
+        // No header, try to guess columns
         const firstLineCols = lines[0].split(',').length;
         if (firstLineCols === 1 && lines[0].includes('@')) {
             headers = ['email'];
-        } else if (firstLineCols === 2) {
-            headers = ['name', 'email'];
+        } else if (firstLineCols === 2 && lines[0].includes('@')) {
+             headers = ['name', 'email'];
+        } else if (firstLineCols > 2 && lines[0].includes('@')) {
+             headers = ['name', 'email', 'status', 'totalspent']; 
         } else {
-            headers = ['name', 'email', 'status', 'totalspent']; 
+            // Cannot reliably determine headers
+            return [];
         }
         dataLines = lines;
     }
+
+    const emailHeaderIndex = headers.findIndex(h => h.includes('email'));
+    if (emailHeaderIndex === -1) return [];
 
     const data = dataLines.map(line => {
         const values = line.split(',').map(v => v.trim());
@@ -104,11 +111,8 @@ const parseCustomerData = (text: string): any[] => {
                 entry[cleanHeader] = values[index].trim();
             }
         });
-        // Ensure there is an email property
-        const emailKey = Object.keys(entry).find(k => k.includes('email'));
-        if(emailKey) {
-            entry.email = entry[emailKey];
-        }
+        
+        entry.email = entry[headers[emailHeaderIndex]];
 
         return entry;
     });
@@ -226,15 +230,7 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string;
-        const parsedCustomers = parseCustomerData(text);
-        setCustomerData(text);
-        setCustomers(parsedCustomers);
-
-        if(parsedCustomers.length > 0) {
-            toast({ title: "Customers Loaded", description: `${parsedCustomers.length} customers found in your CSV.` });
-        } else {
-            toast({ variant: "destructive", title: "No Customers Found", description: "Could not parse any customer data from the provided text."})
-        }
+        handleManualDataChange(text);
       };
       reader.readAsText(file);
     }
@@ -244,6 +240,11 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
     setCustomerData(text);
     const parsedCustomers = parseCustomerData(text);
     setCustomers(parsedCustomers);
+     if (parsedCustomers.length > 0 && text.length > 0) {
+        toast({ title: "Customers Loaded", description: `${parsedCustomers.length} customers ready for campaign.` });
+    } else if (text.length > 0) {
+        toast({ variant: "destructive", title: "Parsing Failed", description: "Could not find valid customer data. Ensure email is present."})
+    }
   }
 
   const handleSummarize = async () => {
@@ -302,55 +303,67 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
     if (generatedCampaign.length === 0 || !user) return;
     setIsSending(true);
 
-    const sendPromises = generatedCampaign.map(email => {
-      return sendEmail({
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (!appUrl) {
+      toast({
+        variant: "destructive",
+        title: "Configuration Error",
+        description: "NEXT_PUBLIC_APP_URL is not set in .env. Open tracking will be disabled.",
+      });
+    }
+
+    const campaignRef = await addDoc(collection(db, 'campaigns'), {
+      name: generatedCampaign[0].subject,
+      status: 'Sending',
+      createdAt: Timestamp.now(),
+      recipientCount: generatedCampaign.length,
+      openedCount: 0,
+      userId: user.uid,
+    });
+    const campaignId = campaignRef.id;
+
+    const sendPromises = generatedCampaign.map(async (email) => {
+      const logRef = await addDoc(collection(db, 'emailLogs'), {
+        campaignId: campaignId,
         recipientEmail: email.recipientEmail,
         subject: email.subject,
-        htmlContent: email.content.replace(/\n/g, '<br>'),
-      }).then(async (sendResult) => {
-        if (sendResult.success) {
-          await addDoc(collection(db, 'emailLogs'), {
-            recipientEmail: email.recipientEmail,
-            subject: email.subject,
-            content: email.content.replace(/\n/g, '<br>'),
-            sentAt: Timestamp.now(),
-            status: 'Sent',
-            userId: user.uid,
-          });
-          return { status: 'fulfilled', value: email.recipientEmail };
-        } else {
-          return { status: 'rejected', reason: sendResult.message, recipient: email.recipientEmail };
-        }
+        sentAt: Timestamp.now(),
+        status: 'Sent',
+        userId: user.uid,
+        content: email.content.replace(/\n/g, '<br>'),
       });
+      const logId = logRef.id;
+
+      const trackingPixel = appUrl ? `<img src="${appUrl}/api/track/${logId}/pixel.gif" width="1" height="1" alt="" />` : '';
+      const contentWithPixel = `${email.content.replace(/\n/g, '<br>')}${trackingPixel}`;
+
+      const sendResult = await sendEmail({
+        recipientEmail: email.recipientEmail,
+        subject: email.subject,
+        htmlContent: contentWithPixel,
+      });
+      
+      return sendResult.success 
+        ? { status: 'fulfilled', value: email.recipientEmail }
+        : { status: 'rejected', reason: sendResult.message, recipient: email.recipientEmail };
     });
 
     const results = await Promise.all(sendPromises);
     const successfulSends = results.filter(r => r.status === 'fulfilled').length;
     const failedSends = results.filter(r => r.status === 'rejected');
     
+    await updateDoc(campaignRef, { status: 'Sent' });
+
     if (successfulSends > 0) {
       toast({ title: "Campaign Sent!", description: `${successfulSends} emails sent successfully.` });
-       // Create a single campaign record in Firestore for history
-      try {
-        await addDoc(collection(db, 'campaigns'), {
-          name: generatedCampaign[0].subject,
-          status: 'Sent',
-          createdAt: Timestamp.now(),
-          recipientCount: successfulSends,
-          openRate: 0, // Placeholder for open rate tracking
-          userId: user.uid,
-        });
-      } catch (error) {
-        console.error("Error creating campaign record:", error);
-        // Silently fail, as the core function (sending email) succeeded.
-      }
+    }
+    
+    if (failedSends.length > 0) {
+      toast({ variant: "destructive", title: "Sending Failed", description: `${failedSends.length} emails could not be sent.` });
+      console.error("Failed sends:", failedSends);
     }
 
-    if (failedSends.length > 0) {
-      toast({ variant: "destructive", title: "Sending Failed", description: `${failedSends.length} emails could not be sent. Check console for details.` });
-      console.error("Failed sends:", failedSends);
-    } else if (successfulSends > 0) {
-      // Only reset if all sends were successful
+    if (failedSends.length === 0) {
       resetCampaignState();
     }
 
@@ -367,32 +380,57 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
         return;
     }
 
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL;
+    if (!appUrl) {
+        toast({
+            variant: "destructive",
+            title: "Configuration Error",
+            description: "NEXT_PUBLIC_APP_URL is not set in .env. Open tracking will be disabled.",
+        });
+    }
+
     const [hours, minutes] = scheduleTime.split(':').map(Number);
     const scheduleDateTime = new Date(selectedDate);
-    scheduleDateTime.setHours(hours, minutes, 0, 0); // set seconds and ms to 0
+    scheduleDateTime.setHours(hours, minutes, 0, 0);
 
-    try {
-      const schedulePromises = generatedCampaign.map(email => {
-         return addDoc(collection(db, 'scheduledEmails'), {
-            recipientEmail: email.recipientEmail,
-            subject: email.subject,
-            content: email.content.replace(/\n/g, '<br>'),
-            sendAt: Timestamp.fromDate(scheduleDateTime),
-            status: 'Scheduled',
-            userId: user.uid,
-        });
-      });
-      await Promise.all(schedulePromises);
-
-      // Create a single campaign record in Firestore for history
-      await addDoc(collection(db, 'campaigns'), {
+    const campaignRef = await addDoc(collection(db, 'campaigns'), {
         name: generatedCampaign[0].subject,
         status: 'Scheduled',
         createdAt: Timestamp.fromDate(scheduleDateTime),
         recipientCount: generatedCampaign.length,
-        openRate: 0, // Placeholder
+        openedCount: 0,
         userId: user.uid,
+    });
+    const campaignId = campaignRef.id;
+
+    try {
+      const schedulePromises = generatedCampaign.map(async (email) => {
+        const logRef = await addDoc(collection(db, 'emailLogs'), {
+            campaignId: campaignId,
+            recipientEmail: email.recipientEmail,
+            subject: email.subject,
+            sentAt: Timestamp.fromDate(scheduleDateTime),
+            status: 'Scheduled',
+            userId: user.uid,
+            content: email.content.replace(/\n/g, '<br>'),
+        });
+        const logId = logRef.id;
+        
+        const trackingPixel = appUrl ? `<img src="${appUrl}/api/track/${logId}/pixel.gif" width="1" height="1" alt="" />` : '';
+        const contentWithPixel = `${email.content.replace(/\n/g, '<br>')}${trackingPixel}`;
+
+        return addDoc(collection(db, 'scheduledEmails'), {
+            recipientEmail: email.recipientEmail,
+            subject: email.subject,
+            content: contentWithPixel,
+            sendAt: Timestamp.fromDate(scheduleDateTime),
+            status: 'Scheduled',
+            userId: user.uid,
+            campaignId: campaignId,
+            logId: logId
+        });
       });
+      await Promise.all(schedulePromises);
 
       toast({ title: "Campaign Scheduled!", description: `${generatedCampaign.length} emails scheduled for ${scheduleDateTime.toLocaleString()}.` });
       resetCampaignState();
@@ -425,6 +463,7 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
             customerData: customerData,
             recipientCount: customers.length,
             openRate: 0,
+            openedCount: 0,
         };
 
         if (draftIdToUpdate) {

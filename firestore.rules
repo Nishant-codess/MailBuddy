@@ -8,34 +8,53 @@ service cloud.firestore {
       return request.auth.uid != null;
     }
 
-    // Users can only read and write their own user document.
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
     match /users/{userId} {
-      allow read, write: if isSignedIn() && request.auth.uid == userId;
+      allow read, write: if isOwner(userId);
     }
 
-    // Customers can be read, written, and listed by their owner.
-    match /customers/{docId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    match /customers/{customerId} {
+      allow get: if isOwner(resource.data.userId);
+      allow list: if isSignedIn();
+      allow write: if isOwner(request.resource.data.userId);
     }
 
-    // Campaigns can be read, written, and listed by their owner.
-    match /campaigns/{docId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+    match /campaigns/{campaignId} {
+      allow get: if isOwner(resource.data.userId);
+      allow list: if isSignedIn();
+      allow write: if isOwner(request.resource.data.userId);
+      
+      // Allow unauthenticated update ONLY to increment openedCount by 1
+      allow update: if request.auth == null &&
+                     request.resource.data.openedCount == resource.data.openedCount + 1 &&
+                     request.resource.data.diff(resource.data).affectedKeys().hasOnly(['openedCount']);
+    }
+    
+    match /scheduledEmails/{emailId} {
+      allow get: if isOwner(resource.data.userId);
+      allow list: if isSignedIn();
+      allow write: if isOwner(request.resource.data.userId);
     }
 
-    // ScheduledEmails can be read, written, and listed by their owner.
-    match /scheduledEmails/{docId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow write: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-    }
+    match /emailLogs/{logId} {
+      allow get: if isOwner(resource.data.userId);
+      allow list: if isSignedIn();
+      allow create: if isOwner(request.resource.data.userId);
+      
+      // Allow an unauthenticated user to update ONLY the status to 'Opened'
+      allow update: if (isOwner(request.resource.data.userId)) || 
+                     (
+                       request.auth == null &&
+                       request.resource.data.status == 'Opened' &&
+                       resource.data.status == 'Sent' &&
+                       request.resource.data.openedAt == request.time &&
+                       request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'openedAt'])
+                     );
 
-    // EmailLogs can be read and listed by their owner, but are immutable.
-    match /emailLogs/{docId} {
-      allow read: if isSignedIn() && resource.data.userId == request.auth.uid;
-      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
-      allow update, delete: if false;
+      allow delete: if false;
     }
   }
 }

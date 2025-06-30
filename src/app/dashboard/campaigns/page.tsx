@@ -30,10 +30,11 @@ import { useToast } from "@/hooks/use-toast";
 interface Campaign {
   id: string;
   name: string;
-  status: 'Sent' | 'Draft' | 'Scheduled';
+  status: 'Sent' | 'Draft' | 'Scheduled' | 'Sending';
   createdAt: Date;
   recipientCount: number;
-  openRate: number;
+  openedCount?: number;
+  openRate: number; // This will be calculated client-side
   userId?: string;
   template?: string;
   productName?: string;
@@ -58,8 +59,6 @@ export default function CampaignsPage() {
       try {
         setLoading(true);
         const campaignsCollectionRef = collection(db, 'campaigns');
-        // Query for campaigns belonging to the current user.
-        // Sorting is now done on the client-side to avoid needing a composite index.
         const q = query(campaignsCollectionRef, where('userId', '==', user.uid));
         const querySnapshot = await getDocs(q);
 
@@ -70,8 +69,10 @@ export default function CampaignsPage() {
             name: data.name,
             status: data.status,
             createdAt: (data.createdAt as Timestamp).toDate(),
-            recipientCount: data.recipientCount,
-            openRate: data.openRate,
+            recipientCount: data.recipientCount || 0,
+            openedCount: data.openedCount || 0,
+            // openRate is calculated below, not taken from DB
+            openRate: 0,
             userId: data.userId,
             template: data.template,
             productName: data.productName,
@@ -108,13 +109,15 @@ export default function CampaignsPage() {
     fetchCampaigns();
   }, [user, toast]);
 
-  const getStatusVariant = (status: 'Sent' | 'Draft' | 'Scheduled'): 'default' | 'secondary' | 'outline' => {
+  const getStatusVariant = (status: Campaign['status']): 'default' | 'secondary' | 'outline' => {
     switch (status) {
       case 'Sent':
         return 'default';
       case 'Draft':
         return 'secondary';
       case 'Scheduled':
+        return 'outline';
+      case 'Sending':
         return 'outline';
       default:
         return 'default';
@@ -159,24 +162,30 @@ export default function CampaignsPage() {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  campaigns.map((campaign) => (
-                    <TableRow 
-                      key={campaign.id}
-                      onClick={() => {
-                        if (campaign.status === 'Draft') {
-                          router.push(`/dashboard?draftId=${campaign.id}`);
-                        }
-                      }}
-                      className={campaign.status === 'Draft' ? 'cursor-pointer' : ''}
-                    >
-                      <TableCell className="font-medium">{campaign.name}</TableCell>
-                      <TableCell>
-                        <Badge variant={getStatusVariant(campaign.status)}>{campaign.status}</Badge>
-                      </TableCell>
-                      <TableCell>{format(campaign.createdAt, 'PP')}</TableCell>
-                      <TableCell className="text-right">{campaign.openRate}%</TableCell>
-                    </TableRow>
-                  ))
+                  campaigns.map((campaign) => {
+                    const openRate = campaign.recipientCount > 0 
+                      ? ((campaign.openedCount || 0) / campaign.recipientCount) * 100 
+                      : 0;
+
+                    return (
+                      <TableRow 
+                        key={campaign.id}
+                        onClick={() => {
+                          if (campaign.status === 'Draft') {
+                            router.push(`/dashboard?draftId=${campaign.id}`);
+                          }
+                        }}
+                        className={campaign.status === 'Draft' ? 'cursor-pointer' : ''}
+                      >
+                        <TableCell className="font-medium">{campaign.name}</TableCell>
+                        <TableCell>
+                          <Badge variant={getStatusVariant(campaign.status)}>{campaign.status}</Badge>
+                        </TableCell>
+                        <TableCell>{format(campaign.createdAt, 'PP')}</TableCell>
+                        <TableCell className="text-right">{openRate.toFixed(1)}%</TableCell>
+                      </TableRow>
+                    )
+                  })
                 )}
               </TableBody>
             </Table>
