@@ -95,33 +95,53 @@ export default function CustomersPage() {
   const parseCsvToCustomers = (csvText: string): Customer[] => {
     const lines = csvText.trim().split(/\r?\n/);
     if (lines.length < 2) return [];
-
-    const headers = lines[0].split(',').map(h => h.trim());
-    const requiredHeaders = ['name', 'email', 'status', 'totalSpent'];
-    const hasAllHeaders = requiredHeaders.every(h => headers.includes(h));
-
-    if (!hasAllHeaders) {
+  
+    const headers = lines[0].split(',').map(h => h.trim().toLowerCase().replace(/\s+/g, ''));
+  
+    const headerMapping: { [key: string]: string[] } = {
+      name: ['name', 'customername'],
+      email: ['email', 'emailid', 'emailaddress'],
+      status: ['status'],
+      totalSpent: ['totalspent', 'totalspentindollars']
+    };
+  
+    const findIndex = (headerOptions: string[]) => {
+      for (const option of headerOptions) {
+        const index = headers.indexOf(option);
+        if (index !== -1) return index;
+      }
+      return -1;
+    };
+  
+    const indices = {
+      name: findIndex(headerMapping.name),
+      email: findIndex(headerMapping.email),
+      status: findIndex(headerMapping.status),
+      totalSpent: findIndex(headerMapping.totalSpent)
+    };
+  
+    if (indices.name === -1 || indices.email === -1) {
       toast({
         variant: "destructive",
         title: "Invalid CSV Headers",
-        description: `CSV must contain headers: ${requiredHeaders.join(', ')}`,
+        description: `CSV must contain columns for 'Name' and 'Email'. Please check your file.`,
       });
       return [];
     }
     
     const data = lines.slice(1).map((line, index) => {
         const values = line.split(',').map(v => v.trim());
-        const entry: {[key: string]: string} = {};
-        headers.forEach((header, i) => {
-            entry[header] = values[i];
-        });
+        const name = values[indices.name] || '';
+        const email = values[indices.email] || '';
+        const statusStr = indices.status !== -1 ? values[indices.status] : 'New';
+        const totalSpentStr = indices.totalSpent !== -1 ? values[indices.totalSpent] : '0';
         
         return {
           id: `csv-${index}-${Date.now()}`,
-          name: entry.name || '',
-          email: entry.email || '',
-          status: ['Active', 'Churned', 'New'].includes(entry.status) ? entry.status as Customer['status'] : 'New',
-          totalSpent: parseFloat(entry.totalSpent) || 0,
+          name: name,
+          email: email,
+          status: ['Active', 'Churned', 'New'].includes(statusStr) ? statusStr as Customer['status'] : 'New',
+          totalSpent: parseFloat(totalSpentStr) || 0,
         };
     }).filter(c => c.name && c.email);
     
@@ -139,7 +159,7 @@ export default function CustomersPage() {
           
           if (newCustomers.length === 0) {
             if(csvText.length > 0) {
-              toast({ variant: "destructive", title: "No Customers Found", description: "Could not parse valid customer data from the CSV." });
+              // Toast is already shown in parseCsvToCustomers
             }
             return;
           }
@@ -156,19 +176,21 @@ export default function CustomersPage() {
             batch.delete(doc.ref);
           });
           
+          const customersForState: Customer[] = [];
           newCustomers.forEach(customer => {
             const { id, ...customerData } = customer; // Firestore generates its own ID, so we discard the temporary one.
             const newCustomerRef = doc(customersCollectionRef);
             batch.set(newCustomerRef, { ...customerData, userId: user.uid });
+            customersForState.push({ ...customer, id: newCustomerRef.id });
           });
           
           await batch.commit();
           
-          setCustomers(newCustomers);
+          setCustomers(customersForState);
           toast({ title: "Customers Updated", description: `${newCustomers.length} customers were imported successfully.` });
         } catch (error) {
             console.error("Failed to process CSV and update Firestore:", error);
-            toast({ variant: "destructive", title: "Update Error", description: "Could not update the customer list in the database." });
+            toast({ variant: "destructive", title: "Update Error", description: "Could not update the customer list in the database. This may be a permission issue." });
         } finally {
             setLoading(false);
             // Reset file input so user can upload the same file again
