@@ -25,7 +25,7 @@ import { Upload, Loader2 } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/context/AuthContext';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, writeBatch, doc } from 'firebase/firestore';
+import { collection, getDocs, writeBatch, doc, query, where } from 'firebase/firestore';
 
 
 export default function CustomersPage() {
@@ -42,13 +42,10 @@ export default function CustomersPage() {
     }
     try {
       setLoading(true);
-      const customersCollection = collection(db, 'customers');
-      // Fetch all customers and filter client-side.
-      // This is a workaround for potential Firestore indexing issues.
-      // NOTE: This can be inefficient for very large customer lists and requires
-      // broader read permissions in your Firestore security rules.
-      const querySnapshot = await getDocs(customersCollection);
-      const allCustomers = querySnapshot.docs.map(doc => {
+      const customersCollectionRef = collection(db, 'customers');
+      const q = query(customersCollectionRef, where('userId', '==', user.uid));
+      const querySnapshot = await getDocs(q);
+      const userCustomers = querySnapshot.docs.map(doc => {
         const data = doc.data();
         return {
           id: doc.id,
@@ -56,10 +53,9 @@ export default function CustomersPage() {
           email: data.email,
           status: data.status,
           totalSpent: data.totalSpent,
-          userId: data.userId, // Keep userId for filtering
+          userId: data.userId, // Keep userId for lookups
         } as Customer;
       });
-      const userCustomers = allCustomers.filter(c => c.userId === user.uid);
       setCustomers(userCustomers);
     } catch (error) {
       console.error("Error fetching customers:", error);
@@ -97,7 +93,7 @@ export default function CustomersPage() {
     fileInputRef.current?.click();
   };
 
-  const parseCsvToCustomers = (csvText: string): Omit<Customer, 'id'>[] => {
+  const parseCsvToCustomers = (csvText: string): Omit<Customer, 'id' | 'userId'>[] => {
     const lines = csvText.trim().split(/\r?\n/);
     if (lines.length < 2) return [];
   
@@ -171,7 +167,6 @@ export default function CustomersPage() {
           setLoading(true);
 
           // Create a map of existing customers by email for quick lookup.
-          // This uses the 'customers' state which is already fetched on page load.
           const existingCustomersMap = new Map(customers.map(c => [c.email, c.id]));
           
           const customersCollectionRef = collection(db, 'customers');

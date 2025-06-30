@@ -1,8 +1,9 @@
+
 "use client";
 
 import { useState, useEffect } from 'react';
 import { db } from '@/lib/firebase';
-import { collection, getDocs, query, orderBy, Timestamp, where } from 'firebase/firestore';
+import { collection, getDocs, query, where, Timestamp } from 'firebase/firestore';
 import { format } from 'date-fns';
 import {
   Card,
@@ -53,8 +54,9 @@ export default function EmailLogsPage() {
       }
       try {
         setLoading(true);
-        const logsCollection = collection(db, 'emailLogs');
-        const q = query(logsCollection, where('userId', '==', user.uid), orderBy('sentAt', 'desc'));
+        const logsCollectionRef = collection(db, 'emailLogs');
+        // Query only by userId to avoid needing a composite index on (userId, sentAt)
+        const q = query(logsCollectionRef, where('userId', '==', user.uid));
         const querySnapshot = await getDocs(q);
         const logsData = querySnapshot.docs.map(doc => {
           const data = doc.data();
@@ -64,6 +66,10 @@ export default function EmailLogsPage() {
             sentAt: (data.sentAt as Timestamp).toDate(),
           } as EmailLog;
         });
+
+        // Sort logs on the client-side
+        logsData.sort((a, b) => b.sentAt.getTime() - a.sentAt.getTime());
+        
         setLogs(logsData);
       } catch (error) {
         console.error("Error fetching email logs:", error);

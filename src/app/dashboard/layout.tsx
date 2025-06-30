@@ -41,11 +41,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     const checkAndSendScheduledEmails = async () => {
       try {
         const scheduledEmailsCollection = collection(db, 'scheduledEmails');
-        // Simplified query to avoid composite index requirement
+        // Query only by userId to avoid needing a composite index on (userId, status)
         const q = query(
           scheduledEmailsCollection,
-          where('userId', '==', user.uid),
-          where('status', '==', 'Scheduled')
+          where('userId', '==', user.uid)
         );
 
         const querySnapshot = await getDocs(q);
@@ -54,10 +53,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
 
         const now = Timestamp.now();
-        // Filter for time on the client-side
+        // Filter for status and time on the client-side
         const dueDocs = querySnapshot.docs.filter(doc => {
             const email = doc.data();
-            return email.sendAt && (email.sendAt as Timestamp) <= now;
+            return email.status === 'Scheduled' && email.sendAt && (email.sendAt as Timestamp) <= now;
         });
 
         if (dueDocs.length === 0) {
