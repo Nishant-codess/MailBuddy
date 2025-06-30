@@ -35,44 +35,44 @@ export default function CustomersPage() {
   const { toast } = useToast();
   const { user } = useAuth();
 
-  useEffect(() => {
-    const fetchCustomers = async () => {
-      if (!user) {
-        setLoading(false);
-        return;
-      }
-      try {
-        setLoading(true);
-        const customersCollection = collection(db, 'customers');
-        const q = query(customersCollection, where('userId', '==', user.uid));
-        const querySnapshot = await getDocs(q);
-        const customersData = querySnapshot.docs.map(doc => {
-          const data = doc.data();
-          return {
-            id: doc.id,
-            name: data.name,
-            email: data.email,
-            status: data.status,
-            totalSpent: data.totalSpent,
-          } as Customer;
-        });
-        setCustomers(customersData);
-      } catch (error) {
-        console.error("Error fetching customers:", error);
-        toast({
-          variant: "destructive",
-          title: "Error fetching customers",
-          description: "Could not load customer data from the database.",
-        });
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchCustomers = async () => {
+    if (!user) {
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      const customersCollection = collection(db, 'customers');
+      const q = query(customersCollection, where('userId', '==', user.uid));
+      const querySnapshot = await getDocs(q);
+      const customersData = querySnapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          name: data.name,
+          email: data.email,
+          status: data.status,
+          totalSpent: data.totalSpent,
+        } as Customer;
+      });
+      setCustomers(customersData);
+    } catch (error) {
+      console.error("Error fetching customers:", error);
+      toast({
+        variant: "destructive",
+        title: "Error fetching customers",
+        description: "Could not load customer data. This may be due to a missing Firestore index on 'userId'. Check the browser console for a link to create it.",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     if (user) {
       fetchCustomers();
     }
-  }, [user, toast]);
+  }, [user]);
 
 
   const getStatusVariant = (status: 'Active' | 'Churned' | 'New'): 'default' | 'destructive' | 'secondary' => {
@@ -92,7 +92,7 @@ export default function CustomersPage() {
     fileInputRef.current?.click();
   };
 
-  const parseCsvToCustomers = (csvText: string): Customer[] => {
+  const parseCsvToCustomers = (csvText: string): Omit<Customer, 'id'>[] => {
     const lines = csvText.trim().split(/\r?\n/);
     if (lines.length < 2) return [];
   
@@ -137,7 +137,6 @@ export default function CustomersPage() {
         const totalSpentStr = indices.totalSpent !== -1 ? values[indices.totalSpent] : '0';
         
         return {
-          id: `csv-${index}-${Date.now()}`,
           name: name,
           email: email,
           status: ['Active', 'Churned', 'New'].includes(statusStr) ? statusStr as Customer['status'] : 'New',
@@ -159,38 +158,50 @@ export default function CustomersPage() {
           
           if (newCustomers.length === 0) {
             if(csvText.length > 0) {
-              // Toast is already shown in parseCsvToCustomers
+               // Toast is already shown in parseCsvToCustomers
             }
             return;
           }
 
           setLoading(true);
-
-          const batch = writeBatch(db);
+          
           const customersCollectionRef = collection(db, 'customers');
+          const batch = writeBatch(db);
+          let upsertCount = { updated: 0, created: 0 };
 
-          // Replace strategy: delete old customers, add new ones.
-          const q = query(customersCollectionRef, where('userId', '==', user.uid));
-          const existingCustomersSnapshot = await getDocs(q);
-          existingCustomersSnapshot.forEach(doc => {
-            batch.delete(doc.ref);
-          });
-          
-          const customersForState: Customer[] = [];
-          newCustomers.forEach(customer => {
-            const { id, ...customerData } = customer; // Firestore generates its own ID, so we discard the temporary one.
-            const newCustomerRef = doc(customersCollectionRef);
-            batch.set(newCustomerRef, { ...customerData, userId: user.uid });
-            customersForState.push({ ...customer, id: newCustomerRef.id });
-          });
-          
+          for (const customer of newCustomers) {
+            const q = query(customersCollectionRef, where('userId', '==', user.uid), where('email', '==', customer.email));
+            const existingCustomerSnapshot = await getDocs(q);
+
+            if (!existingCustomerSnapshot.empty) {
+              // Update existing customer
+              const customerDocRef = existingCustomerSnapshot.docs[0].ref;
+              batch.update(customerDocRef, customer);
+              upsertCount.updated++;
+            } else {
+              // Create new customer
+              const newCustomerRef = doc(customersCollectionRef);
+              batch.set(newCustomerRef, { ...customer, userId: user.uid });
+              upsertCount.created++;
+            }
+          }
+
           await batch.commit();
           
-          setCustomers(customersForState);
-          toast({ title: "Customers Updated", description: `${newCustomers.length} customers were imported successfully.` });
-        } catch (error) {
+          toast({ title: "Customers Updated", description: `${upsertCount.created} customers added, ${upsertCount.updated} updated.` });
+
+          // Re-fetch customers to show the latest state in the UI
+          await fetchCustomers();
+
+        } catch (error: any) {
             console.error("Failed to process CSV and update Firestore:", error);
-            toast({ variant: "destructive", title: "Update Error", description: "Could not update the customer list in the database. This may be a permission issue." });
+            let description = "Could not update the customer list in the database.";
+            if (error.code === 'failed-precondition') {
+                description = "A required database index is missing. Please check the browser's developer console for a link to create it.";
+            } else if (error.code === 'permission-denied') {
+                description = "You do not have permission to perform this action. Please check your Firestore security rules."
+            }
+            toast({ variant: "destructive", title: "Update Error", description });
         } finally {
             setLoading(false);
             // Reset file input so user can upload the same file again
