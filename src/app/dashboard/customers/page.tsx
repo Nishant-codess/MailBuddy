@@ -57,12 +57,18 @@ export default function CustomersPage() {
         } as Customer;
       });
       setCustomers(userCustomers);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error fetching customers:", error);
+      let description = "An unexpected error occurred. Please try again later.";
+      if (error.code === 'failed-precondition') {
+          description = "A required database index is missing. Please check your browser's developer console for a link to create it.";
+      } else if (error.code === 'permission-denied') {
+          description = "You do not have permission to view customers. Please check your Firestore security rules."
+      }
       toast({
         variant: "destructive",
-        title: "Error fetching customers",
-        description: "Could not load customer data. Please check your Firestore security rules or internet connection.",
+        title: "Error Fetching Customers",
+        description,
       });
     } finally {
       setLoading(false);

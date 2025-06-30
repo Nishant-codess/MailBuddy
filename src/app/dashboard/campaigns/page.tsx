@@ -89,7 +89,9 @@ export default function CampaignsPage() {
         console.error("Error fetching campaigns:", error);
         let description = "Could not load your campaigns. Please try again later.";
         
-        if (error.code === 'permission-denied') {
+        if (error.code === 'failed-precondition') {
+            description = "A required database index is missing. Please check your browser's developer console for a link to create it.";
+        } else if (error.code === 'permission-denied') {
             description = "You do not have permission to view campaigns. Please check your Firestore security rules."
         }
         toast({
