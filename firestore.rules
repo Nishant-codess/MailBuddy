@@ -7,8 +7,14 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // Users can create/read/write their own customer documents.
+    // Users can create, read, and write their own customer documents.
     match /customers/{customerId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+    
+    // Users can create, read, and write their own campaign documents.
+    match /campaigns/{campaignId} {
       allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
       allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
     }
