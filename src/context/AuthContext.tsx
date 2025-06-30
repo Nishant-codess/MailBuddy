@@ -103,23 +103,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       await signInWithEmailAndPassword(auth, email, password);
       // onAuthStateChanged will handle redirect and state updates
     } catch (error: any) {
+      // For the common case of wrong credentials, we just show a toast
+      // and don't log a console error, which prevents the Next.js error overlay.
+      if (error?.code === 'auth/invalid-credential') {
+        toast({
+          variant: 'destructive',
+          title: 'Login Failed',
+          description: 'Invalid credentials. Please check your email and password.',
+        });
+        setIsAuthenticating(false);
+        return; // Exit the function early
+      }
+
+      // For all other errors, we log them for debugging and show a user-friendly message.
       console.error("Login failed:", error);
       let description = "An unexpected error occurred. Please try again.";
 
-      if (error && error.code) {
-          switch (error.code) {
-              case 'auth/invalid-credential':
-                  description = "Invalid credentials. Please check your email and password.";
-                  break;
-              case 'auth/user-disabled':
-                  description = "This account has been disabled.";
-                  break;
-              case 'auth/too-many-requests':
-                  description = "Access to this account has been temporarily disabled due to many failed login attempts. You can reset your password or try again later.";
-                  break;
-              default:
-                  description = "Login failed. Please try again.";
-          }
+      if (error?.code === 'auth/user-disabled') {
+        description = "This account has been disabled.";
+      } else if (error?.code === 'auth/too-many-requests') {
+        description = "Access to this account has been temporarily disabled due to many failed login attempts. You can reset your password or try again later.";
       }
       
       toast({ variant: "destructive", title: "Login Failed", description });
