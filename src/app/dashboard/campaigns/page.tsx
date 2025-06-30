@@ -20,9 +20,10 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, Timestamp } from "firebase/firestore";
+import { collection, query, where, getDocs, Timestamp, orderBy } from "firebase/firestore";
 import { format } from "date-fns";
 import { Loader2 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
 // Define the Campaign type based on Firestore document
 interface Campaign {
@@ -40,6 +41,7 @@ export default function CampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(true);
   const { user } = useAuth();
+  const { toast } = useToast();
 
   useEffect(() => {
     const fetchCampaigns = async () => {
@@ -49,10 +51,13 @@ export default function CampaignsPage() {
       }
       try {
         setLoading(true);
-        // Fetch all campaigns and filter on the client to avoid indexing issues
-        const querySnapshot = await getDocs(collection(db, 'campaigns'));
+        const campaignsCollectionRef = collection(db, 'campaigns');
+        // Query for campaigns belonging to the current user, ordered by creation date.
+        // This query may require a composite index in Firestore.
+        const q = query(campaignsCollectionRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+        const querySnapshot = await getDocs(q);
 
-        const allCampaigns = querySnapshot.docs.map(doc => {
+        const userCampaigns = querySnapshot.docs.map(doc => {
           const data = doc.data();
           return {
             id: doc.id,
@@ -65,25 +70,30 @@ export default function CampaignsPage() {
           } as Campaign;
         });
 
-        // Filter campaigns for the current user
-        const userCampaigns = allCampaigns.filter(campaign => campaign.userId === user.uid);
-        
-        // Sort campaigns by creation date
-        userCampaigns.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
-
         setCampaigns(userCampaigns);
 
-      } catch (error) {
-        // This might happen if the 'campaigns' collection doesn't exist yet
-        // or if security rules are not set up. We'll log it and show an empty list.
+      } catch (error: any) {
         console.error("Error fetching campaigns:", error);
+        let description = "Could not load your campaigns. Please try again later.";
+        // Check if the error is a Firestore permission error that suggests creating an index.
+        if (error.code === 'failed-precondition' && error.message.includes('index')) {
+            description = "A required database index is missing. Please open the developer console (F12), find the error message, and click the link to create the index in Firebase.";
+        } else if (error.code === 'permission-denied') {
+            description = "You do not have permission to view campaigns. Please check your Firestore security rules."
+        }
+        toast({
+            variant: "destructive",
+            title: "Error Fetching Campaigns",
+            description: description,
+        });
+
       } finally {
         setLoading(false);
       }
     };
 
     fetchCampaigns();
-  }, [user]);
+  }, [user, toast]);
 
   const getStatusVariant = (status: 'Sent' | 'Draft' | 'Scheduled'): 'default' | 'secondary' | 'outline' => {
     switch (status) {
