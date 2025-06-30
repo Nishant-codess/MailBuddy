@@ -19,7 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 interface SignUpData {
   name: string;
   email: string;
-  password: string;
+  password:string;
 }
 
 // Define the shape of the login data
@@ -104,20 +104,24 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       // onAuthStateChanged will handle redirect and state updates
     } catch (error: any) {
       console.error("Login failed:", error);
-      let description = "An unexpected error occurred.";
-      switch (error.code) {
-        case 'auth/invalid-credential':
-          description = "Invalid credentials. Please check your email and password.";
-          break;
-        case 'auth/user-disabled':
-          description = "This account has been disabled.";
-          break;
-        case 'auth/too-many-requests':
-          description = "Access to this account has been temporarily disabled due to many failed login attempts. Please try again later.";
-          break;
-        default:
-          description = "Login failed. Please try again.";
+      let description = "An unexpected error occurred. Please try again.";
+
+      if (error && error.code) {
+          switch (error.code) {
+              case 'auth/invalid-credential':
+                  description = "Invalid credentials. Please check your email and password.";
+                  break;
+              case 'auth/user-disabled':
+                  description = "This account has been disabled.";
+                  break;
+              case 'auth/too-many-requests':
+                  description = "Access to this account has been temporarily disabled due to many failed login attempts. You can reset your password or try again later.";
+                  break;
+              default:
+                  description = "Login failed. Please try again.";
+          }
       }
+      
       toast({ variant: "destructive", title: "Login Failed", description });
       setIsAuthenticating(false);
     }
