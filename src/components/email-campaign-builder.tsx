@@ -48,7 +48,7 @@ const parseCustomerData = (text: string): any[] => {
     const lines = text.trim().split(/\r?\n/).filter(line => line.trim() !== '');
     if (lines.length === 0) return [];
     
-    // Heuristic: If the first line has a colon, or no commas, treat it as a single customer entry.
+    // Heuristic: If it looks like a single key:value entry, parse it that way.
     const isLikelySingleEntry = lines[0].includes(':') || !lines[0].includes(',');
 
     if (isLikelySingleEntry && lines.some(l => l.includes(':'))) {
@@ -78,19 +78,25 @@ const parseCustomerData = (text: string): any[] => {
         return normalizedCustomer.email ? [normalizedCustomer] : [];
     }
     
-    // Fallback to original CSV parsing for multiple customers
-    if (lines.length < 2) return [];
-    const headers = lines[0].split(',').map(h => h.trim());
-    const data = lines.slice(1).map(line => {
-        // This is a naive CSV parser. It doesn't handle commas inside quotes.
+    // Fallback to CSV parsing. Handle case with or without header.
+    const isHeaderPresent = lines.length > 1 && !lines[0].includes('@');
+    const headerLine = isHeaderPresent ? lines[0] : 'name,email';
+    const dataLines = isHeaderPresent ? lines.slice(1) : lines;
+
+    const headers = headerLine.split(',').map(h => h.trim().toLowerCase());
+    const data = dataLines.map(line => {
         const values = line.split(',');
         const entry: {[key: string]: string} = {};
         headers.forEach((header, index) => {
-            entry[header.toLowerCase()] = values[index]?.trim();
+            if (values[index]) {
+                entry[header] = values[index].trim();
+            }
         });
         return entry;
     });
-    return data;
+
+    // Filter for entries that have a valid-looking email
+    return data.filter(customer => customer.email && customer.email.includes('@'));
   }
 
 export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
