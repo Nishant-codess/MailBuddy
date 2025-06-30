@@ -1,0 +1,27 @@
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Users can only read/write their own user document.
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Users can create/read/write their own customer documents.
+    match /customers/{customerId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+
+    // Users can create logs and scheduled emails, and can only read/write items they own.
+    match /emailLogs/{logId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+    
+    match /scheduledEmails/{emailId} {
+      allow create: if request.auth != null && request.resource.data.userId == request.auth.uid;
+      allow read, write: if request.auth != null && resource.data.userId == request.auth.uid;
+    }
+  }
+}
