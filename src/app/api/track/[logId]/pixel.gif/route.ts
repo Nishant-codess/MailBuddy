@@ -1,7 +1,6 @@
 
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/firebase';
-import { doc, getDoc, updateDoc, runTransaction, Timestamp } from 'firebase/firestore';
+import { db, admin } from '@/lib/firebase-admin';
 
 // 1x1 transparent GIF
 const pixel = Buffer.from(
@@ -28,31 +27,28 @@ export async function GET(
       return new NextResponse(pixel, { headers });
     }
 
-    const logRef = doc(db, 'emailLogs', logId);
+    const logRef = db.collection('emailLogs').doc(logId);
     
     // Using a transaction to ensure atomicity
-    await runTransaction(db, async (transaction) => {
+    await db.runTransaction(async (transaction) => {
         const logSnap = await transaction.get(logRef);
 
         // Only process if the log exists and hasn't been opened yet
-        if (logSnap.exists() && logSnap.data().status !== 'Opened') {
-            const campaignId = logSnap.data().campaignId;
+        if (logSnap.exists && logSnap.data()?.status !== 'Opened') {
+            const campaignId = logSnap.data()?.campaignId;
             
             // Mark the email as opened
             transaction.update(logRef, {
                 status: 'Opened',
-                openedAt: Timestamp.now(),
+                openedAt: admin.firestore.FieldValue.serverTimestamp(),
             });
             
-            // If there's an associated campaign, update its open count
+            // If there's an associated campaign, atomically increment its open count
             if (campaignId) {
-                const campaignRef = doc(db, 'campaigns', campaignId);
-                const campaignDoc = await transaction.get(campaignRef);
-
-                if (campaignDoc.exists()) {
-                    const currentOpens = campaignDoc.data().openedCount || 0;
-                    transaction.update(campaignRef, { openedCount: currentOpens + 1 });
-                }
+                const campaignRef = db.collection('campaigns').doc(campaignId);
+                transaction.update(campaignRef, { 
+                    openedCount: admin.firestore.FieldValue.increment(1) 
+                });
             }
         }
     });
