@@ -20,7 +20,7 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { useAuth } from "@/context/AuthContext";
 import { db } from "@/lib/firebase";
-import { collection, query, where, getDocs, Timestamp, orderBy } from "firebase/firestore";
+import { collection, query, where, getDocs, Timestamp } from "firebase/firestore";
 import { format } from "date-fns";
 import { Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -52,9 +52,9 @@ export default function CampaignsPage() {
       try {
         setLoading(true);
         const campaignsCollectionRef = collection(db, 'campaigns');
-        // Query for campaigns belonging to the current user, ordered by creation date.
-        // This query may require a composite index in Firestore.
-        const q = query(campaignsCollectionRef, where('userId', '==', user.uid), orderBy('createdAt', 'desc'));
+        // Query for campaigns belonging to the current user.
+        // Sorting is now done on the client-side to avoid needing a composite index.
+        const q = query(campaignsCollectionRef, where('userId', '==', user.uid));
         const querySnapshot = await getDocs(q);
 
         const userCampaigns = querySnapshot.docs.map(doc => {
@@ -70,15 +70,16 @@ export default function CampaignsPage() {
           } as Campaign;
         });
 
+        // Sort campaigns by creation date on the client.
+        userCampaigns.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
         setCampaigns(userCampaigns);
 
       } catch (error: any) {
         console.error("Error fetching campaigns:", error);
         let description = "Could not load your campaigns. Please try again later.";
-        // Check if the error is a Firestore permission error that suggests creating an index.
-        if (error.code === 'failed-precondition' && error.message.includes('index')) {
-            description = "A required database index is missing. Please open the developer console (F12), find the error message, and click the link to create the index in Firebase.";
-        } else if (error.code === 'permission-denied') {
+        
+        if (error.code === 'permission-denied') {
             description = "You do not have permission to view campaigns. Please check your Firestore security rules."
         }
         toast({
