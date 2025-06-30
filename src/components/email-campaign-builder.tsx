@@ -44,6 +44,55 @@ interface CampaignEmail {
   customer: any;
 }
 
+const parseCustomerData = (text: string): any[] => {
+    const lines = text.trim().split(/\r?\n/).filter(line => line.trim() !== '');
+    if (lines.length === 0) return [];
+    
+    // Heuristic: If the first line has a colon, or no commas, treat it as a single customer entry.
+    const isLikelySingleEntry = lines[0].includes(':') || !lines[0].includes(',');
+
+    if (isLikelySingleEntry && lines.some(l => l.includes(':'))) {
+        const customer: {[key: string]: string} = {};
+        let lastKey = '';
+        lines.forEach(line => {
+            const parts = line.split(/:(.*)/s); // Split on the first colon
+            if (parts.length > 1) {
+                const key = parts[0].trim();
+                const value = parts[1].trim();
+                customer[key] = value;
+                lastKey = key;
+            } else if (lastKey) {
+                // Append to the last key if a line has no colon
+                customer[lastKey] += '\n' + line.trim();
+            }
+        });
+
+        // Normalize email key to ensure it exists for sending.
+        const normalizedCustomer: any = {...customer};
+        for (const key in customer) {
+            if (key.toLowerCase().replace(/\s+/g, '').includes('email')) {
+                normalizedCustomer.email = customer[key];
+                break;
+            }
+        }
+        return normalizedCustomer.email ? [normalizedCustomer] : [];
+    }
+    
+    // Fallback to original CSV parsing for multiple customers
+    if (lines.length < 2) return [];
+    const headers = lines[0].split(',').map(h => h.trim());
+    const data = lines.slice(1).map(line => {
+        // This is a naive CSV parser. It doesn't handle commas inside quotes.
+        const values = line.split(',');
+        const entry: {[key: string]: string} = {};
+        headers.forEach((header, index) => {
+            entry[header.toLowerCase()] = values[index]?.trim();
+        });
+        return entry;
+    });
+    return data;
+  }
+
 export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
   const { user } = useAuth();
   const [customerData, setCustomerData] = useState('');
@@ -129,42 +178,29 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
     })
   }, [carouselApi])
 
-  const parseCsv = (csvText: string): any[] => {
-    const lines = csvText.trim().split(/\r?\n/);
-    if (lines.length < 2) return [];
-    
-    const headers = lines[0].split(',').map(h => h.trim());
-    const data = lines.slice(1).map(line => {
-        const values = line.split(',').map(v => v.trim());
-        const entry: {[key: string]: string} = {};
-        headers.forEach((header, index) => {
-            entry[header] = values[index];
-        });
-        return entry;
-    });
-    return data;
-  }
-
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       const reader = new FileReader();
       reader.onload = (e) => {
-        const csvText = e.target?.result as string;
-        handleManualDataChange(csvText);
-        if(parseCsv(csvText).length > 0) {
-            toast({ title: "Customers Loaded", description: `${parseCsv(csvText).length} customers found in your CSV.` });
+        const text = e.target?.result as string;
+        const parsedCustomers = parseCustomerData(text);
+        setCustomerData(text);
+        setCustomers(parsedCustomers);
+
+        if(parsedCustomers.length > 0) {
+            toast({ title: "Customers Loaded", description: `${parsedCustomers.length} customers found in your CSV.` });
         } else {
-            toast({ variant: "destructive", title: "No Customers Found", description: "Could not parse any customer data from the CSV."})
+            toast({ variant: "destructive", title: "No Customers Found", description: "Could not parse any customer data from the provided text."})
         }
       };
       reader.readAsText(file);
     }
   };
   
-  const handleManualDataChange = (csvText: string) => {
-    setCustomerData(csvText);
-    const parsedCustomers = parseCsv(csvText);
+  const handleManualDataChange = (text: string) => {
+    setCustomerData(text);
+    const parsedCustomers = parseCustomerData(text);
     setCustomers(parsedCustomers);
   }
 
@@ -188,7 +224,7 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
 
   const onSubmit = async (values: FormValues) => {
     if (customers.length === 0) {
-      toast({ variant: "destructive", title: "No Customers", description: "Please upload a CSV with customer data first." });
+      toast({ variant: "destructive", title: "No Customers", description: "Please upload or enter valid customer data first." });
       return;
     }
     setIsGenerating(true);
@@ -389,7 +425,7 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
             <CardDescription>Upload a CSV with customer emails and data to personalize your campaign.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Tabs defaultValue="csv">
+            <Tabs defaultValue="manual">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="csv"><Upload className="size-4 mr-2"/>Upload CSV</TabsTrigger>
                 <TabsTrigger value="manual">Manual Entry</TabsTrigger>
@@ -398,7 +434,7 @@ export function EmailCampaignBuilder({ draftId }: { draftId?: string }) {
                 <Input type="file" accept=".csv, text/csv" onChange={handleFileChange} />
               </TabsContent>
               <TabsContent value="manual" className="mt-4">
-                <Textarea placeholder="Paste CSV data here (e.g., name,email,product)..." value={customerData} onChange={(e) => handleManualDataChange(e.target.value)} rows={8} />
+                <Textarea placeholder="Paste CSV data or customer details here..." value={customerData} onChange={(e) => handleManualDataChange(e.target.value)} rows={8} />
               </TabsContent>
             </Tabs>
           </CardContent>
