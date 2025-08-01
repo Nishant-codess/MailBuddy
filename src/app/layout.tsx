@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { AuthProvider } from '@/context/AuthContext';
 
 export const metadata: Metadata = {
-  title: 'MailBuddy',
+  title: 'MailGenius',
   description: 'Generate marketing emails with AI',
 };
 

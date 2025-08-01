@@ -59,7 +59,7 @@ export default function LoginPage() {
               <Logo />
            </div>
           <CardTitle className="text-2xl">Welcome Back</CardTitle>
-          <CardDescription>Sign in to your MailBuddy account.</CardDescription>
+          <CardDescription>Sign in to your MailGenius account.</CardDescription>
         </CardHeader>
         <CardContent>
           <Form {...form}>
