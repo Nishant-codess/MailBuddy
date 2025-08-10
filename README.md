@@ -5,7 +5,7 @@
 With **Google Gemini AI** at its core, it crafts engaging content, analyzes customer data, and helps you connect with your audience in style.  
 
 <p align="center">
-  <img src="https://placehold.co/900x400.png?text=MailBuddy+Dashboard" alt="MailBuddy Dashboard">
+  <img src="https://drive.google.com/file/d/1n4SZmMdEMvO2bBmjdiuHPEfwp_JlzbHd/view?usp=sharing" alt="MailBuddy Dashboard">
   <br>
   <i>✨ AI-generated campaigns directly from your dashboard ✨</i>
 </p>
@@ -56,18 +56,19 @@ Alright — continuing from **Step 3** in the same stylish format we used for yo
 
 ---
 
-````markdown
----
+````
 
 ### **3️⃣ Set Up Environment Variables**
 
 Before running MailBuddy, you’ll need to configure your own environment variables.  
 We keep these in a `.env` file to store sensitive credentials securely.
 
-📁 **Create your `.env` file:**
+
+📁 **Create your `.env` file**:  
 ```bash
 cp .env.example .env
-````
+
+
 
 📝 **Edit the `.env` file** with your own keys.
 Here’s what you need:
