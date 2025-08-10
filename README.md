@@ -5,9 +5,8 @@
 With **Google Gemini AI** at its core, it crafts engaging content, analyzes customer data, and helps you connect with your audience in style.  
 
 <p align="center">
-  <img src="[https://drive.google.com/file/d/1n4SZmMdEMvO2bBmjdiuHPEfwp_JlzbHd/view?usp=sharing](https://drive.google.com/uc?export=view&id=1n4SZmMdEMvO2bBmjdiuHPEfwp_JlzbHd
-)" alt="MailBuddy Dashboard">
-  <br>
+  <img src="Screenshot%202025-08-10%20143901.png" alt="MailBuddy Dashboard">
+<br>
   <i>✨ AI-generated campaigns directly from your dashboard ✨</i>
 </p>
 
